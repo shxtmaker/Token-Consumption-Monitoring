@@ -1,0 +1,64 @@
+<Window x:Class="TokenUsageMonitorV3.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置 — Token Usage" Width="320" SizeToContent="Height"
+        WindowStyle="ToolWindow" ResizeMode="NoResize"
+        Background="#FF181B20" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <StackPanel Margin="16">
+        <!-- 标题行 -->
+        <TextBlock Text="系统设置" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
+
+        <!-- 官方接口轮询：标签左、输入框右同行 -->
+        <Grid Margin="0,12,0,0">
+            <TextBlock Text="官方接口轮询（分钟）" Foreground="#C7CBD3" FontSize="12" VerticalAlignment="Center"/>
+            <TextBox x:Name="PollBox" Width="90" Height="28" Padding="6"
+                     HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- 会话自检：标签左、输入框右同行 -->
+        <Grid Margin="0,10,0,0">
+            <TextBlock Text="会话自检（秒）" Foreground="#C7CBD3" FontSize="12" VerticalAlignment="Center"/>
+            <TextBox x:Name="CheckBox" Width="90" Height="28" Padding="6"
+                     HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- 不透明度（桌面组件）：标签+百分比 一行、滑杆一行，共两行 -->
+        <Grid Margin="0,10,0,0">
+            <TextBlock Text="不透明度" Foreground="#C7CBD3" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock x:Name="OpacityValueText" Foreground="#8A8F98" FontSize="11"
+                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+        <Slider x:Name="OpacitySlider" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                Margin="0,6,0,0" ValueChanged="OpacitySlider_Changed"
+                ToolTip="桌面组件背景不透明度：100% 为纯色黑背景，越低越淡，0% 背景全透仅剩文字/进度条（即时生效）"/>
+
+        <!-- 开机自启 + 桌面组件 + token消耗量：两个等分弹性间隔列，间隙严格相等且铺满整行 -->
+        <Grid Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <CheckBox x:Name="AutoStartBox" Content="开机自启" Foreground="#C7CBD3" IsChecked="True"
+                      VerticalAlignment="Center"/>
+            <CheckBox x:Name="WidgetBox" Grid.Column="2" Content="桌面组件" Foreground="#C7CBD3" IsChecked="True"
+                      VerticalAlignment="Center"
+                      Checked="WidgetBox_Changed" Unchecked="WidgetBox_Changed"/>
+            <CheckBox x:Name="DailyTokensBox" Grid.Column="4" Content="token消耗量" Foreground="#C7CBD3" IsChecked="True"
+                      VerticalAlignment="Center"
+                      Checked="DailyTokensBox_Changed" Unchecked="DailyTokensBox_Changed"/>
+        </Grid>
+
+        <!-- 保存/取消：占满一行，两个等宽按钮 -->
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="保存" Margin="0,0,4,0" Padding="0,6" Click="Save_Click"/>
+            <Button Grid.Column="1" Content="取消" Margin="4,0,0,0" Padding="0,6" Click="Cancel_Click"/>
+        </Grid>
+    </StackPanel>
+</Window>
