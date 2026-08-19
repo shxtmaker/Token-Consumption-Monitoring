@@ -1,14 +1,15 @@
 # Token Consumption Monitoring
 
-**V1.0.0** — Win11 桌面小部件：实时监控 API Token 用量与额度窗口。
+**V1.1.0** — Win11 桌面小部件：实时监控 API Token 用量与额度窗口。
 
-托盘常驻 + 悬浮窗小组件 + 配置面板，支持 DeepSeek 官方 API、opencode 网关与 OpenAI/Anthropic 兼容端点。
+托盘常驻 + 悬浮窗小组件 + 配置面板，支持 DeepSeek 官方 API、opencode 网关、Command Code 套餐与 OpenAI/Anthropic 兼容端点。
 
 ## 功能
 
 - **页面模型**：任意多个 API 配置页面，每个页面独立配置（名称 / Base URL / API Key / API 格式 / 模型列表）
 - **DeepSeek 官方用量**：内嵌 WebView2 登录控制台 → 今日 Token 消耗与预计金额（flash / pro 分模型显示），官方 CNY 单价
 - **opencode 网关**：窗口限额（滚动 5h / 周 / 月 用量百分比 + 下次重置时间）
+- **Command Code 套餐**：GOAT/Pro/Max 等套餐监控——月额度 + 5h/周滚动窗口（官方 /alpha 控制面，Bearer API key，支持 CLI 登录凭据回退；Base URL 含 commandcode.ai 自动识别）
 - **通用探测**：Chat Completions / Responses / Anthropic 三种协议——连接状态 + 模型列表自动拉取
 - **安全存储**：API Key / 会话凭据存 Windows 凭据管理器
 - **告警**：连接状态报警（页面金额/token 告警在后续版本重新制定）
