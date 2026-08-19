@@ -1,7 +1,7 @@
-; Token Usage V1.0.0 安装脚本（Inno Setup 6）
+; Token Usage V1.1.0 安装脚本（Inno Setup 6）
 ; 前置：先执行 dotnet publish -c Release -o publish（见 README 构建章节）
 #define MyAppName "Token Usage"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "shxtmaker"
 #define MyAppExeName "TokenUsageMonitorV3.exe"
 

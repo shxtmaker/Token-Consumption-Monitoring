@@ -45,7 +45,7 @@ dotnet publish -c Release -r win-x64 --self-contained \
 
 ## 下载
 
-发布版见 [GitHub Releases](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases)：安装程序（`TokenUsage-Setup-1.0.0.exe`）与免安装版（`TokenUsage-V1.0.0-win-x64-portable.zip`）。
+发布版见 [GitHub Releases](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases)：安装程序（`TokenUsage-Setup-1.1.0.exe`）、免安装版（`TokenUsage-V1.1.0-win-x64-portable.zip`）与升级包（`TokenUsageMonitorV3.exe`，直接覆盖旧版即可）。
 
 ## 作者
 
