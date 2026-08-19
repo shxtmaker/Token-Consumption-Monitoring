@@ -76,7 +76,8 @@ public partial class App : System.Windows.Application
 
         // 页面引擎（v4 唯一引擎：轮询 + 探测 + 渲染）
         _pageEngine = new PageEngine(pages, state, alerts, _tray, _settings, Dispatcher,
-            opencode, openCodeAuth, _deepSeekSession, deepSeekUsage, new ZCodeUsageService());
+            opencode, openCodeAuth, _deepSeekSession, deepSeekUsage,
+            new CommandCodeUsageClient(), new ZCodeUsageService());
 
         _floating = new FloatingWindow { DataContext = state };
         _floating.SetLocked(_settings.WidgetLocked);   // 恢复锁定状态（置顶/禁拖动）

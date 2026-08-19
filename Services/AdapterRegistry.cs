@@ -6,6 +6,9 @@ public enum AdapterKind
     /// <summary>opencode 网关：窗口限额（/zen/go/v1/usage + /api/go/status）。</summary>
     WindowLimit,
 
+    /// <summary>Command Code（commandcode.ai）订阅套餐：GOAT 等 —— 5h/周窗口 + 月额度（/alpha 控制面）。</summary>
+    CommandCode,
+
     /// <summary>DeepSeek 控制台：官方会话用量（WebView2 页面捕获）。</summary>
     ConsoleSession,
 
@@ -24,6 +27,7 @@ public static class AdapterRegistry
         if (string.IsNullOrWhiteSpace(baseUrl)) return AdapterKind.Probe;
         var u = baseUrl.ToLowerInvariant();
         if (u.Contains("opencode.ai")) return AdapterKind.WindowLimit;
+        if (u.Contains("commandcode.ai")) return AdapterKind.CommandCode;
         if (u.Contains("platform.deepseek.com")) return AdapterKind.ConsoleSession;
         if (u.Contains("api.deepseek.com")) return AdapterKind.DeepSeekApi;
         return AdapterKind.Probe;
@@ -32,6 +36,7 @@ public static class AdapterRegistry
     public static string Describe(AdapterKind kind) => kind switch
     {
         AdapterKind.WindowLimit => "opencode 网关（窗口限额）",
+        AdapterKind.CommandCode => "Command Code 套餐（GOAT 等月额度/窗口）",
         AdapterKind.ConsoleSession => "DeepSeek 控制台（官方会话用量）",
         AdapterKind.DeepSeekApi => "DeepSeek 官方 API（余额/模型）",
         _ => "通用探测（连接 + 模型列表）",

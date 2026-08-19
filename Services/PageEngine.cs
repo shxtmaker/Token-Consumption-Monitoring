@@ -46,6 +46,7 @@ public sealed class PageEngine : IDisposable
         OpenCodeAuthService auth,
         DeepSeekSessionService dsSession,
         DeepSeekUsageClient dsUsage,
+        CommandCodeUsageClient commandCode,
         ZCodeUsageService zcode)
     {
         _pages = pages;
@@ -57,13 +58,15 @@ public sealed class PageEngine : IDisposable
         _zcode = zcode;
 
         foreach (var p in pages)
-            _adapters[p.Id] = CreateAdapter(p, opencodeClient, auth, dsSession, dsUsage);
+            _adapters[p.Id] = CreateAdapter(p, opencodeClient, auth, dsSession, dsUsage, commandCode);
     }
 
     private static IPageAdapter CreateAdapter(Page p, OpenCodeUsageClient oc, OpenCodeAuthService auth,
-        DeepSeekSessionService session, DeepSeekUsageClient dsUsage) => AdapterRegistry.Resolve(p.BaseUrl) switch
+        DeepSeekSessionService session, DeepSeekUsageClient dsUsage, CommandCodeUsageClient commandCode)
+        => AdapterRegistry.Resolve(p.BaseUrl) switch
     {
         AdapterKind.WindowLimit => new WindowLimitAdapter(oc, auth),
+        AdapterKind.CommandCode => new CommandCodeAdapter(commandCode),
         AdapterKind.ConsoleSession => new ConsoleSessionAdapter(session, dsUsage),
         AdapterKind.DeepSeekApi => new DeepSeekApiAdapter(session, dsUsage),
         _ => new ProbeAdapter(),
@@ -239,6 +242,7 @@ public sealed class PageEngine : IDisposable
         switch (AdapterRegistry.Resolve(page.BaseUrl))
         {
             case AdapterKind.WindowLimit:
+            case AdapterKind.CommandCode:   // Command Code 套餐与 opencode 同构：5h/周/月 三窗口
                 if (d.Rolling is { } r)
                     _state.Rolling.Update(r.Percent, r.Status, r.ResetsAt, AlertLevel.None,
                         d.RollingAbsolute?.LimitMicroCents, d.RollingAbsolute?.RemainingMicroCents);
@@ -250,6 +254,8 @@ public sealed class PageEngine : IDisposable
                         d.MonthlyAbsolute?.LimitMicroCents, d.MonthlyAbsolute?.RemainingMicroCents);
                 var winLevel = _alerts.EvaluateWindows(_state);
                 _tray.SetState(d.Status, winLevel > pageLevel ? winLevel : pageLevel);
+                Logger.Log($"窗口渲染 {page.Name}: 5h={d.Rolling?.Percent}% 周={d.Weekly?.Percent}% 月={d.Monthly?.Percent}% | " +
+                    $"{d.RollingAbsolute?.LimitMicroCents / 10_000_000m:C2}/{d.RollingAbsolute?.RemainingMicroCents / 10_000_000m:C2}");
                 break;
 
             case AdapterKind.ConsoleSession:

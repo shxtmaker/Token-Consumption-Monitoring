@@ -144,7 +144,7 @@ public sealed class MonitorState : System.ComponentModel.INotifyPropertyChanged
     {
         AccountName = name;
         PageName = name;
-        IsOpenCodeAccount = kind == AdapterKind.WindowLimit;
+        IsOpenCodeAccount = kind == AdapterKind.WindowLimit || kind == AdapterKind.CommandCode;
         IsDeepSeekAccount = kind == AdapterKind.ConsoleSession || kind == AdapterKind.DeepSeekApi;   // 官方 API 整合页同显官方用量
         IsProbePage = kind == AdapterKind.Probe || kind == AdapterKind.DeepSeekApi;   // 官方 API 页同用探测视图（模型+余额）
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(AccountName)));
