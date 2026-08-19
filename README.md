@@ -20,6 +20,7 @@
 | 本地 | 仅支持读取 zcode 数据获取日 token 消耗量 |
 | DeepSeek 官方（控制台 platform.deepseek.com） | 官方用量接口（需登录会话，cookie 持久化，重启免登录） |
 | opencode go 套餐（opencode.ai） | 窗口限额；API-key 模式官方不提供 token 统计 |
+| Command Code 套餐（commandcode.ai） | GOAT/Pro/Max 等月额度 + 5h/周滚动窗口（官方 /alpha 控制面，Bearer API key） |
 | OpenAI / Anthropic 兼容端点 | 无官方用量端点，仅连接探测 + 模型列表 |
 
 ## 构建

@@ -37,8 +37,8 @@
                            VerticalAlignment="Center" Margin="6,0,6,0"/>
             </DockPanel>
 
-            <!-- ===== OpenCode 视图：三窗口 + 官方用量 ===== -->
-            <StackPanel Visibility="{Binding IsOpenCodeAccount, Converter={StaticResource BoolVis}}">
+            <!-- ===== 三窗口布局页视图（opencode / Command Code）：三窗口 + 限额/剩余 ===== -->
+            <StackPanel Visibility="{Binding IsWindowLayoutPage, Converter={StaticResource BoolVis}}">
                 <Grid Margin="0,2,0,2">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="58"/><ColumnDefinition Width="*"/>

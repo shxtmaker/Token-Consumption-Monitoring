@@ -19,6 +19,12 @@ public sealed class PageEngine : IDisposable
     private readonly Dictionary<string, IPageAdapter> _adapters = new();
     private readonly Dictionary<string, PageData> _cache = new();
     private readonly ZCodeUsageService _zcode;
+    // 适配器重建依赖（运行期新增页面时 SyncPages 用）
+    private readonly OpenCodeUsageClient _oc;
+    private readonly OpenCodeAuthService _auth;
+    private readonly DeepSeekSessionService _dsSession;
+    private readonly DeepSeekUsageClient _dsUsage;
+    private readonly CommandCodeUsageClient _commandCode;
     private List<ZCodeUsageService.ProviderUsage> _lastDaily = new();
 
     private readonly CancellationTokenSource _cts = new();
@@ -46,6 +52,7 @@ public sealed class PageEngine : IDisposable
         OpenCodeAuthService auth,
         DeepSeekSessionService dsSession,
         DeepSeekUsageClient dsUsage,
+        CommandCodeUsageClient commandCode,
         ZCodeUsageService zcode)
     {
         _pages = pages;
@@ -55,15 +62,22 @@ public sealed class PageEngine : IDisposable
         _settings = settings;
         _dispatcher = dispatcher;
         _zcode = zcode;
+        _oc = opencodeClient;
+        _auth = auth;
+        _dsSession = dsSession;
+        _dsUsage = dsUsage;
+        _commandCode = commandCode;
 
         foreach (var p in pages)
-            _adapters[p.Id] = CreateAdapter(p, opencodeClient, auth, dsSession, dsUsage);
+            _adapters[p.Id] = CreateAdapter(p, opencodeClient, auth, dsSession, dsUsage, commandCode);
     }
 
     private static IPageAdapter CreateAdapter(Page p, OpenCodeUsageClient oc, OpenCodeAuthService auth,
-        DeepSeekSessionService session, DeepSeekUsageClient dsUsage) => AdapterRegistry.Resolve(p.BaseUrl) switch
+        DeepSeekSessionService session, DeepSeekUsageClient dsUsage, CommandCodeUsageClient commandCode)
+        => AdapterRegistry.Resolve(p.BaseUrl) switch
     {
         AdapterKind.WindowLimit => new WindowLimitAdapter(oc, auth),
+        AdapterKind.CommandCode => new CommandCodeAdapter(commandCode),
         AdapterKind.ConsoleSession => new ConsoleSessionAdapter(session, dsUsage),
         AdapterKind.DeepSeekApi => new DeepSeekApiAdapter(session, dsUsage),
         _ => new ProbeAdapter(),
@@ -85,6 +99,13 @@ public sealed class PageEngine : IDisposable
         RenderDailyUsage(_lastDaily);   // 切页即按新页 API key 重归属今日用量
         if (_cache.TryGetValue(page.Id, out var data))
             Render(page, data);
+        else
+        {
+            // 首次切换无缓存：清空三窗口，避免残留上一页数据误导
+            _state.Rolling.Update(-1, "", null, AlertLevel.None);
+            _state.Weekly.Update(-1, "", null, AlertLevel.None);
+            _state.Monthly.Update(-1, "", null, AlertLevel.None);
+        }
     }
 
     public void SwitchToNext()
@@ -92,6 +113,19 @@ public sealed class PageEngine : IDisposable
         if (_pages.Count == 0) return;
         var idx = _pages.FindIndex(p => p.Id == _activeId);
         SetActivePage(_pages[(idx + 1) % _pages.Count].Id);
+    }
+
+    /// <summary>同步适配器表：面板新增/删除页面后调用（_adapters 仅构造时建，运行期新增页否则永不轮询）。</summary>
+    public void SyncPages()
+    {
+        var current = _pages.Select(p => p.Id).ToHashSet();
+        foreach (var p in _pages)
+            _adapters.TryAdd(p.Id, CreateAdapter(p, _oc, _auth, _dsSession, _dsUsage, _commandCode));
+        foreach (var id in _adapters.Keys.Where(k => !current.Contains(k)).ToList())
+        {
+            _adapters.Remove(id);
+            _cache.Remove(id);
+        }
     }
 
     public async Task RefreshNowAsync()
@@ -183,7 +217,7 @@ public sealed class PageEngine : IDisposable
         catch (Exception ex) { Logger.LogException("zcode daily usage", ex); }
     }
 
-    /// <summary>归属规则：有 key 页按 provider.apiKey 匹配；无 key 页（控制台会话）按 baseURL 与页面同主域匹配。行名带供应商前缀，区分同名模型。</summary>
+    /// <summary>归属规则：有 key 页按 provider.apiKey 匹配；无 key 页（控制台会话）按 baseURL 与页面同主域匹配。行名仅显示模型名。</summary>
     private void RenderDailyUsage(List<ZCodeUsageService.ProviderUsage> byProvider)
     {
         var page = ActivePage;
@@ -217,7 +251,7 @@ public sealed class PageEngine : IDisposable
                 : DomainOf(pu.Provider.BaseUrl) is { } d && d == pageDomain;
             if (!match) continue;
             foreach (var m in pu.Models)
-                rows.Add(($"{pu.Provider.Name} · {m.Model}", m.Tokens));
+                rows.Add((m.Model, m.Tokens));   // 仅显示模型名（去掉供应商前缀，对齐参考布局）
         }
         _state.SetDailyUsage(rows.Sum(r => r.Tokens), rows);
     }
@@ -239,15 +273,19 @@ public sealed class PageEngine : IDisposable
         switch (AdapterRegistry.Resolve(page.BaseUrl))
         {
             case AdapterKind.WindowLimit:
+            case AdapterKind.CommandCode:   // Command Code 套餐与 opencode 同构：5h/周/月 三窗口
                 if (d.Rolling is { } r)
-                    _state.Rolling.Update(r.Percent, r.Status, r.ResetsAt, AlertLevel.None,
-                        d.RollingAbsolute?.LimitMicroCents, d.RollingAbsolute?.RemainingMicroCents);
+                    _state.Rolling.Update(r.Percent, r.Status, r.ResetsAt, AlertLevel.None);
+                else
+                    _state.Rolling.Update(-1, "", null, AlertLevel.None);   // 无数据清空，避免残留旧值
                 if (d.Weekly is { } w)
-                    _state.Weekly.Update(w.Percent, w.Status, w.ResetsAt, AlertLevel.None,
-                        d.WeeklyAbsolute?.LimitMicroCents, d.WeeklyAbsolute?.RemainingMicroCents);
+                    _state.Weekly.Update(w.Percent, w.Status, w.ResetsAt, AlertLevel.None);
+                else
+                    _state.Weekly.Update(-1, "", null, AlertLevel.None);
                 if (d.Monthly is { } m)
-                    _state.Monthly.Update(m.Percent, m.Status, m.ResetsAt, AlertLevel.None,
-                        d.MonthlyAbsolute?.LimitMicroCents, d.MonthlyAbsolute?.RemainingMicroCents);
+                    _state.Monthly.Update(m.Percent, m.Status, m.ResetsAt, AlertLevel.None);
+                else
+                    _state.Monthly.Update(-1, "", null, AlertLevel.None);
                 var winLevel = _alerts.EvaluateWindows(_state);
                 _tray.SetState(d.Status, winLevel > pageLevel ? winLevel : pageLevel);
                 break;

@@ -76,7 +76,8 @@ public partial class App : System.Windows.Application
 
         // 页面引擎（v4 唯一引擎：轮询 + 探测 + 渲染）
         _pageEngine = new PageEngine(pages, state, alerts, _tray, _settings, Dispatcher,
-            opencode, openCodeAuth, _deepSeekSession, deepSeekUsage, new ZCodeUsageService());
+            opencode, openCodeAuth, _deepSeekSession, deepSeekUsage,
+            new CommandCodeUsageClient(), new ZCodeUsageService());
 
         _floating = new FloatingWindow { DataContext = state };
         _floating.SetLocked(_settings.WidgetLocked);   // 恢复锁定状态（置顶/禁拖动）
@@ -86,7 +87,9 @@ public partial class App : System.Windows.Application
         {
             var has = pages.Count > 0;
             state.SetPageState(has, has ? pages[0].Name : "");
+            _pageEngine.SyncPages();   // 运行期新增/删除页面 → 重建适配器表，否则新页永不轮询
             _pageEngine.SetActivePage(has ? pages[0].Id : null);
+            _ = _pageEngine.RefreshNowAsync();   // 新页立即拉一次，避免显示残留旧页数据
         };
         _panel.PageSwitchRequested += id => _pageEngine.SetActivePage(id);
         if (pages.Count > 0) _panel.SetActivePageId(pages[0].Id);   // 面板下拉默认第一份配置（不沿用记忆）
@@ -183,10 +186,27 @@ public partial class App : System.Windows.Application
             case AdapterKind.WindowLimit:
                 _ = LoginOpenCodeAsync();
                 break;
+            case AdapterKind.CommandCode:
+                ShowLoginHint("Command Code",
+                    "该套餐使用 Bearer API key 认证，无 OAuth 登录流程。\n\n" +
+                    (CommandCodeUsageClient.ReadLocalApiKey() is not null
+                        ? "已检测到 CLI 登录凭据（~/.commandcode/auth.json），未填写页面 key 时将自动回退使用。"
+                        : "请在左侧表单「API Key」栏填写 Studio API key；\n或先用 Command Code CLI 登录，将自动回退 ~/.commandcode/auth.json。"));
+                break;
             default:
-                _tray!.Balloon("登录", "该页面使用 API Key 认证（无需登录）；连接探测自动进行。");
+                ShowLoginHint("登录", "该页面使用 API Key 认证（无需登录）；连接探测自动进行。");
                 break;
         }
+    }
+
+    /// <summary>登录类提示：面板打开时弹对话框（紧跟用户操作），否则回退托盘气泡。</summary>
+    private void ShowLoginHint(string title, string text)
+    {
+        if (_panel is { IsVisible: true })
+            System.Windows.MessageBox.Show(_panel, text, title,
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        else
+            _tray!.Balloon(title, text);
     }
 
     private async Task LoginOpenCodeAsync()

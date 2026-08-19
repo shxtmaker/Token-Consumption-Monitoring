@@ -101,7 +101,7 @@ public sealed class WindowState : System.ComponentModel.INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(n));
     }
 
-    public static string FormatUsd(long microCents) => (microCents / 10_000_000m).ToString("C2", System.Globalization.CultureInfo.InvariantCulture);
+    public static string FormatUsd(long microCents) => "$" + Money.ToUsd(microCents).ToString("N2", System.Globalization.CultureInfo.InvariantCulture);   // InvariantCulture 的 C2 会输出 ¤，改用显式美元符号
 
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
@@ -122,7 +122,7 @@ public sealed class MonitorState : System.ComponentModel.INotifyPropertyChanged
 
     // 账户（v4 迁移中：页面模型）
     public string AccountName { get; private set; } = "";
-    public bool IsOpenCodeAccount { get; private set; }
+    public bool IsWindowLayoutPage { get; private set; }   // 三窗口布局页（opencode / Command Code：5h/周/月）
     public bool IsDeepSeekAccount { get; private set; }
 
     // 页面模型（v4）
@@ -144,12 +144,12 @@ public sealed class MonitorState : System.ComponentModel.INotifyPropertyChanged
     {
         AccountName = name;
         PageName = name;
-        IsOpenCodeAccount = kind == AdapterKind.WindowLimit;
+        IsWindowLayoutPage = kind == AdapterKind.WindowLimit || kind == AdapterKind.CommandCode;
         IsDeepSeekAccount = kind == AdapterKind.ConsoleSession || kind == AdapterKind.DeepSeekApi;   // 官方 API 整合页同显官方用量
         IsProbePage = kind == AdapterKind.Probe || kind == AdapterKind.DeepSeekApi;   // 官方 API 页同用探测视图（模型+余额）
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(AccountName)));
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(PageName)));
-        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsOpenCodeAccount)));
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsWindowLayoutPage)));
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsDeepSeekAccount)));
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsProbePage)));
     }
