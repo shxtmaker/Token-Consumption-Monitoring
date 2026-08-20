@@ -1,11 +1,11 @@
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
-/// <summary>极简文件日志（%APPDATA%\TokenUsageMonitorV3\app.log）。</summary>
+/// <summary>极简文件日志（%APPDATA%\TokenConsumptionMonitoring\app.log）。</summary>
 public static class Logger
 {
     private static readonly string Path = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "TokenUsageMonitorV3", "app.log");
+        Legacy.CurrentDataDirectoryName, "app.log");
 
     private static readonly object Lock = new();
 

@@ -1,8 +1,11 @@
-namespace TokenUsageMonitorV3.Models;
+namespace TokenConsumptionMonitoring.Models;
 
-/// <summary>持久化设置（%APPDATA%\TokenUsageMonitorV3\settings.json）。</summary>
+/// <summary>持久化设置（%APPDATA%\TokenConsumptionMonitoring\settings.json；旧目录先读后迁移）。</summary>
 public sealed class AppSettings
 {
+    /// <summary>设置 schema 版本（未知高版本读取时保留原文件，不覆盖）。</summary>
+    public int SchemaVersion { get; set; } = 1;
+
     public int PollIntervalMinutes { get; set; } = 30;        // 官方接口轮询（10–120）
     public int ProbeIntervalSeconds { get; set; } = 60;       // 会话自检/连接探测
     public int WarnPercent { get; set; } = 80;                // opencode 窗口告警

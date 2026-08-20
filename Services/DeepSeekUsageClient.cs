@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// DeepSeek 控制台用量解析（经 WebView2 会话 fetch，schema 来自前端 bundle 实测：

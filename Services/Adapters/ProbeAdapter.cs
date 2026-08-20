@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>
 /// 通用探测适配器：连接状态 + 模型列表（无官方用量数据源——OpenAI/Anthropic 普通 key 已核查无用量端点）。

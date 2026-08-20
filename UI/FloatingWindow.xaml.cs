@@ -5,7 +5,7 @@ using Button = System.Windows.Controls.Button;
 using Point = System.Windows.Point;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 
-namespace TokenUsageMonitorV3.UI;
+namespace TokenConsumptionMonitoring.UI;
 
 public partial class FloatingWindow : Window
 {

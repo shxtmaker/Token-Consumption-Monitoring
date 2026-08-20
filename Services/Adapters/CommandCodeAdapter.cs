@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>
 /// Command Code 适配器：GOAT 等订阅套餐的用量监控。

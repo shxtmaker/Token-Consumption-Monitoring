@@ -1,7 +1,7 @@
-<Window x:Class="TokenUsageMonitorV3.UI.MainPanel"
+<Window x:Class="TokenConsumptionMonitoring.UI.MainPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Token Usage 面板" Width="460" SizeToContent="Height" MinHeight="640"
+        Title="Token Consumption Monitoring 面板" Width="900" MinHeight="640" SizeToContent="Height"
         WindowStyle="ToolWindow" ResizeMode="CanResize"
         Background="#FF181B20" ShowInTaskbar="False" WindowStartupLocation="CenterScreen">
     <Grid Margin="14">
@@ -12,46 +12,23 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- 0: 头部：连接状态 + 页面信息 -->
         <StackPanel Grid.Row="0">
             <DockPanel>
-                <!-- Dock 声明须在元素之前：最后更新靠最右 -->
                 <TextBlock DockPanel.Dock="Right" Text="{Binding LastSuccessLabel}" Foreground="#8A8F98" FontSize="11" VerticalAlignment="Center"/>
                 <Ellipse Width="10" Height="10" VerticalAlignment="Center"
                          Fill="{Binding Connection, Converter={StaticResource ConnBrush}}"/>
                 <TextBlock Text="{Binding ConnectionLabel}" FontSize="15" FontWeight="SemiBold"
                            Foreground="#EEF1F5" Margin="8,0,0,0"/>
+                <TextBlock Text="{Binding PageName}" Foreground="#C7CBD3" FontSize="13"
+                           Margin="12,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
             <TextBlock Text="{Binding LastError}" Foreground="#E54848" FontSize="11"
                        Visibility="{Binding LastError, Converter={StaticResource StrVis}}" Margin="18,2,0,0"/>
         </StackPanel>
 
-        <!-- DeepSeek 明细 -->
-        <StackPanel Grid.Row="1" Margin="0,14,0,0" Visibility="{Binding IsDeepSeekAccount, Converter={StaticResource BoolVis}}">
-            <TextBlock Text="{Binding DeepSeekTotalLabel}" Foreground="#EEF1F5" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <Grid Margin="0,6,0,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding DeepSeekFlash.Name}" Foreground="#C7CBD3" FontSize="12"/>
-                <TextBlock Grid.Column="1" Text="{Binding DeepSeekFlash.TokensLabel}" Foreground="#EEF1F5"
-                           FontSize="12" FontWeight="SemiBold" Margin="8,0,0,0"/>
-                <TextBlock Grid.Column="2" Text="{Binding DeepSeekFlash.CostLabel}" Foreground="#7FC9A0" FontSize="12" Margin="10,0,0,0"/>
-            </Grid>
-            <Grid Margin="0,2,0,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding DeepSeekPro.Name}" Foreground="#C7CBD3" FontSize="12"/>
-                <TextBlock Grid.Column="1" Text="{Binding DeepSeekPro.TokensLabel}" Foreground="#EEF1F5"
-                           FontSize="12" FontWeight="SemiBold" Margin="8,0,0,0"/>
-                <TextBlock Grid.Column="2" Text="{Binding DeepSeekPro.CostLabel}" Foreground="#7FC9A0" FontSize="12" Margin="10,0,0,0"/>
-            </Grid>
-        </StackPanel>
-
-        <!-- 通用探测明细已取消模型列表显示（仅连接状态） -->
-
-        <!-- 页面管理（v4）：下拉默认第一份，按钮与下拉框同行（等宽，新建→编辑→删除） -->
-        <StackPanel Grid.Row="2" Margin="0,12,0,0">
+        <!-- 1: 页面管理：下拉 + 新建/编辑/删除 -->
+        <StackPanel Grid.Row="1" Margin="0,10,0,0">
             <DockPanel>
                 <Button x:Name="DeletePageBtn" Content="删除" Width="56" Padding="0,4" FontSize="11"
                         DockPanel.Dock="Right" Click="PageDelete_Click"/>
@@ -65,68 +42,209 @@
                           SelectionChanged="PageCombo_SelectionChanged"/>
             </DockPanel>
             <TextBlock x:Name="PageHintText" FontSize="11" Foreground="#8FAFDB" Margin="0,4,0,0" TextWrapping="Wrap"/>
-            <!-- 选中配置的文本信息（随下拉选择实时更新） -->
-            <TextBlock x:Name="SelectedPageInfo" FontSize="12" Foreground="#C7CBD3" Margin="0,10,0,0"
-                       TextWrapping="Wrap" LineHeight="20"/>
+        </StackPanel>
 
-            <!-- 供应商表单（截图设计：名称/BaseURL/APIKey/API格式/模型列表） -->
-            <Border x:Name="ProviderForm" CornerRadius="8" Background="#1F2329" BorderBrush="#33FFFFFF"
-                    BorderThickness="1" Margin="0,10,0,0" Padding="12" Visibility="Collapsed">
+        <!-- 2: 供应商表单（新建/编辑） -->
+        <Border x:Name="ProviderForm" Grid.Row="2" CornerRadius="8" Background="#1F2329" BorderBrush="#33FFFFFF"
+                BorderThickness="1" Margin="0,10,0,0" Padding="12" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock Text="配置一个完全自定义的 API 端点和初始模型。保存后自动扫描可用的查询方法。" Foreground="#8A8F98" FontSize="11" TextWrapping="Wrap"/>
+
+                <TextBlock Text="名称" Foreground="#C7CBD3" FontSize="12" Margin="0,10,0,0"/>
+                <TextBox x:Name="PNameBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"/>
+
+                <TextBlock Text="Base URL" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
+                <TextBox x:Name="PBaseUrlBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
+                         FontFamily="Consolas" TextChanged="PBaseUrlBox_TextChanged"/>
+                <TextBlock x:Name="PAdapterHint" FontSize="10" Foreground="#8FAFDB" Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                <TextBlock Text="API Key" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
+                <PasswordBox x:Name="PKeyBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
+                             FontFamily="Consolas" PasswordChanged="PKeyBox_PasswordChanged"/>
+                <TextBlock x:Name="PKeyHint" FontSize="10" Foreground="#8A8F98" Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                <TextBlock Text="API 格式" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
+                <ComboBox x:Name="PProtocolCombo" Height="26" Margin="0,3,0,0" FontSize="12"
+                          SelectionChanged="PProtocolCombo_SelectionChanged"/>
+
+                <TextBlock Text="模型列表（配置提示，不用于监控展示）" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
+                <DockPanel Margin="0,3,0,0">
+                    <Button Content="自动拉取" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
+                            Margin="6,0,0,0" Click="PFetchModels_Click"/>
+                    <Button Content="+ 添加模型" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
+                            Margin="0,0,0,0" Click="PAddModel_Click"/>
+                    <TextBox x:Name="PNewModelBox" Height="24" Padding="5" FontSize="11" FontFamily="Consolas"/>
+                </DockPanel>
+                <ListBox x:Name="PModelsList" Height="72" Margin="0,4,0,0" FontSize="11"
+                         Background="#181B20" Foreground="#EEF1F5" BorderThickness="0"/>
+                <TextBlock x:Name="PModelsHint" FontSize="10" Foreground="#8A8F98" Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Content="登录" Padding="0,5" FontSize="11" Margin="0,0,4,0" Click="Login_Click"
+                            ToolTip="根据当前页面凭据类型自动调用对应登录方式"/>
+                    <Button Grid.Column="1" Content="立即刷新" Padding="0,5" FontSize="11" Margin="2,0"
+                            Click="Refresh_Click"/>
+                    <Button Grid.Column="2" Content="取消" Padding="0,5" FontSize="11" Margin="2,0"
+                            Click="PFormCancel_Click"/>
+                    <Button Grid.Column="3" Content="保存" Padding="0,5" FontSize="11" Margin="4,0,0,0"
+                            Click="FormSave_Click" ToolTip="保存后自动扫描可用查询方法"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 3: 扫描诊断工作台（三栏：配置/状态 | 候选链 | 能力矩阵） -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 左栏：页面配置 + 扫描状态 -->
+            <Border Grid.Column="0" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
+                    BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
                 <StackPanel>
-                    <TextBlock Text="配置一个完全自定义的 API 端点和初始模型。" Foreground="#8A8F98" FontSize="11" TextWrapping="Wrap"/>
-
-                    <TextBlock Text="名称" Foreground="#C7CBD3" FontSize="12" Margin="0,10,0,0"/>
-                    <TextBox x:Name="PNameBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
-                             ToolTip="如：智谱 GLM"/>
-
-                    <TextBlock Text="Base URL" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
-                    <TextBox x:Name="PBaseUrlBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
-                             FontFamily="Consolas" TextChanged="PBaseUrlBox_TextChanged"/>
-                    <TextBlock x:Name="PAdapterHint" FontSize="10" Foreground="#8FAFDB" Margin="0,2,0,0" TextWrapping="Wrap"/>
-
-                    <TextBlock Text="API Key" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
-                    <PasswordBox x:Name="PKeyBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
-                                 FontFamily="Consolas" PasswordChanged="PKeyBox_PasswordChanged"/>
-                    <TextBlock x:Name="PKeyHint" FontSize="10" Foreground="#8A8F98" Margin="0,2,0,0" TextWrapping="Wrap"/>
-
-                    <TextBlock Text="API 格式" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
-                    <ComboBox x:Name="PProtocolCombo" Height="26" Margin="0,3,0,0" FontSize="12"
-                              SelectionChanged="PProtocolCombo_SelectionChanged"/>
-
-                    <TextBlock Text="模型列表" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
-                    <DockPanel Margin="0,3,0,0">
-                        <Button Content="自动拉取" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
-                                Margin="6,0,0,0" Click="PFetchModels_Click"/>
-                        <Button Content="+ 添加模型" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
-                                Margin="0,0,0,0" Click="PAddModel_Click"/>
-                        <TextBox x:Name="PNewModelBox" Height="24" Padding="5" FontSize="11"
-                                 FontFamily="Consolas"/>
-                    </DockPanel>
-                    <ListBox x:Name="PModelsList" Height="72" Margin="0,4,0,0" FontSize="11"
-                             Background="#181B20" Foreground="#EEF1F5" BorderThickness="0"/>
-                    <TextBlock x:Name="PModelsHint" FontSize="10" Foreground="#8A8F98" Margin="0,2,0,0" TextWrapping="Wrap"/>
-
-                    <!-- 金额/token 告警选项暂时停用（后续版本重新制定逻辑） -->
-
-                    <!-- 表单底部：登录 / 立即刷新 / 取消 / 保存，四按钮平分 -->
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Button Content="登录" Padding="0,5" FontSize="11" Margin="0,0,4,0" Click="Login_Click"
-                                ToolTip="根据当前页面 API 类型自动调用对应登录方式"/>
-                        <Button Grid.Column="1" Content="立即刷新" Padding="0,5" FontSize="11" Margin="2,0"
-                                Click="Refresh_Click"/>
-                        <Button Grid.Column="2" Content="取消" Padding="0,5" FontSize="11" Margin="2,0"
-                                Click="PFormCancel_Click"/>
-                        <Button Grid.Column="3" Content="保存" Padding="0,5" FontSize="11" Margin="4,0,0,0"
-                                Click="FormSave_Click" ToolTip="保存当前表单配置"/>
-                    </Grid>
+                    <TextBlock Text="配置与扫描" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Diagnostics.ConfigText}" Foreground="#C7CBD3" FontSize="11"
+                               Margin="0,8,0,0" TextWrapping="Wrap" LineHeight="18"/>
+                    <TextBlock Text="配置指纹" Foreground="#8A8F98" FontSize="11" Margin="0,10,0,0"/>
+                    <TextBlock Text="{Binding Diagnostics.Fingerprint}" Foreground="#C7CBD3" FontSize="10"
+                               FontFamily="Consolas" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    <TextBlock Text="扫描状态" Foreground="#8A8F98" FontSize="11" Margin="0,10,0,0"/>
+                    <TextBlock Text="{Binding Diagnostics.ScannedAtLabel}" Foreground="#C7CBD3" FontSize="11" Margin="0,2,0,0"/>
+                    <TextBlock Text="{Binding Diagnostics.SelectionLabel}" Foreground="#8FAFDB" FontSize="11"
+                               Margin="0,2,0,0" TextWrapping="Wrap"/>
+                    <Button Content="重新扫描" Padding="10,4" FontSize="11" Margin="0,12,0,0"
+                            HorizontalAlignment="Left" Click="Rescan_Click"/>
                 </StackPanel>
             </Border>
-        </StackPanel>
+
+            <!-- 中栏：候选方法链 -->
+            <Border Grid.Column="1" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
+                    BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock Text="候选方法链" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Diagnostics.CandidateCountLabel}"
+                                   Foreground="#8A8F98" FontSize="11"/>
+                    </DockPanel>
+                    <TextBlock Text="候选并列时可点击「使用此方法」临时覆盖自动选择（仅运行时生效，重扫后恢复）。"
+                               Foreground="#8A8F98" FontSize="10" Margin="0,6,0,4" TextWrapping="Wrap"/>
+                    <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Diagnostics.Candidates}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#181B20" CornerRadius="6" BorderBrush="#22FFFFFF"
+                                            BorderThickness="1" Margin="0,3,0,3" Padding="8,6">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="●" Foreground="{Binding StatusColorHex}" FontSize="11"
+                                                           Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding MethodId}" Foreground="#EEF1F5" FontSize="11"
+                                                           FontWeight="SemiBold" FontFamily="Consolas"/>
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding StabilityLabel}"
+                                                           Foreground="#8FAFDB" FontSize="10" Margin="8,0,0,0"/>
+                                            </DockPanel>
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusColorHex}" FontSize="11"/>
+                                                <TextBlock Text=" · 置信度 " Foreground="#8A8F98" FontSize="11"/>
+                                                <TextBlock Text="{Binding Confidence}" Foreground="#C7CBD3" FontSize="11"/>
+                                                <TextBlock Text=" · " Foreground="#8A8F98" FontSize="11"/>
+                                                <TextBlock Text="{Binding ScopeLabel}" Foreground="#C7CBD3" FontSize="11"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding CapabilitiesLabel}" Foreground="#C7CBD3" FontSize="10" Margin="0,2,0,0"/>
+                                            <TextBlock Text="{Binding EvidenceText}" Foreground="#8A8F98" FontSize="10"
+                                                       Margin="0,2,0,0" TextWrapping="Wrap" MaxHeight="40"/>
+                                            <TextBlock Text="{Binding FailureText}" Foreground="#E54848" FontSize="10"
+                                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="当前方法" Foreground="#3FB95F" FontSize="10" FontWeight="SemiBold"
+                                                           Visibility="{Binding IsCurrent, Converter={StaticResource BoolVis}}"/>
+                                                <Button Content="使用此方法" FontSize="10" Padding="8,2"
+                                                        Visibility="{Binding IsAvailable, Converter={StaticResource BoolVis}}"
+                                                        Margin="8,0,0,0" Click="UseCandidate_Click"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
+            <!-- 右栏：能力矩阵（快照按能力动态渲染） -->
+            <Border Grid.Column="2" CornerRadius="8" Background="#1F2329"
+                    BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
+                <StackPanel>
+                    <TextBlock Text="能力矩阵" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Snapshot.StatusLabel}" Foreground="#8FAFDB" FontSize="11" Margin="0,6,0,0"/>
+
+                    <!-- 滚动/周期窗口 -->
+                    <StackPanel Visibility="{Binding Snapshot.HasWindows, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
+                        <TextBlock Text="窗口" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{Binding Snapshot.Windows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64"/><ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="34"/><ColumnDefinition Width="92"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" Foreground="#C7CBD3" FontSize="11" VerticalAlignment="Center"/>
+                                        <ProgressBar Grid.Column="1" Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
+                                                     Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
+                                                     Foreground="{Binding Level, Converter={StaticResource LevelBrush}}"
+                                                     VerticalAlignment="Center" Margin="4,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding PercentLabel}" Foreground="#EEF1F5"
+                                                   FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding AbsoluteLabel}" Foreground="#C7CBD3" FontSize="10"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- 报告用量 -->
+                    <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
+                        <DockPanel>
+                            <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}"
+                                       Foreground="#EEF1F5" FontSize="12" FontWeight="SemiBold"/>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" Foreground="#C7CBD3" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding TokensLabel}" Foreground="#EEF1F5"
+                                                   FontSize="11" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding CostLabel}" Foreground="#7FC9A0"
+                                                   FontSize="11" Margin="10,0,0,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- 余额/额度 -->
+                    <StackPanel Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
+                        <TextBlock Text="余额/额度" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding Snapshot.BalanceLabel}" Foreground="#7FC9A0" FontSize="12"
+                                   FontWeight="SemiBold" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

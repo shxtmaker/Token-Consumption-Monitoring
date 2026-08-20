@@ -1,52 +1,92 @@
 # Token Consumption Monitoring
 
-**V1.1.0** — Win11 桌面小部件：实时监控 API Token 用量与额度窗口。
+**V1.2.0** — Win11 桌面小部件：统一查询方法与能力驱动的 API 用量监控。
 
-托盘常驻 + 悬浮窗小组件 + 配置面板，支持 DeepSeek 官方 API、opencode 网关、Command Code 套餐与 OpenAI/Anthropic 兼容端点。
+托盘常驻 + 悬浮窗小组件 + 面板（含扫描诊断工作台）。按“查询方法”的方式统一识别和读取各类来源的用量，页面不再绑定供应商或套餐布局。
 
-## 功能
+## 架构
 
-- **页面模型**：任意多个 API 配置页面，每个页面独立配置（名称 / Base URL / API Key / API 格式 / 模型列表）
-- **DeepSeek 官方用量**：内嵌 WebView2 登录控制台 → 今日 Token 消耗与预计金额（flash / pro 分模型显示），官方 CNY 单价
-- **opencode 网关**：窗口限额（滚动 5h / 周 / 月 用量百分比 + 下次重置时间）
-- **Command Code 套餐**：GOAT/Pro/Max 等套餐监控——月额度 + 5h/周滚动窗口（官方 /alpha 控制面，Bearer API key，支持 CLI 登录凭据回退；Base URL 含 commandcode.ai 自动识别）
-- **通用探测**：Chat Completions / Responses / Anthropic 三种协议——连接状态 + 模型列表自动拉取
-- **安全存储**：API Key / 会话凭据存 Windows 凭据管理器
-- **告警**：连接状态报警（页面金额/token 告警在后续版本重新制定）
+项目从「页面 URL → 单一适配器 → 固定布局」重构为「方法无关页面配置 → 候选扫描 → 方法选择 → 能力快照 → 能力驱动渲染」：
 
-## 数据来源说明
+```text
+PageConfigStore ──┐
+CredentialResolver┼─> PageScanCoordinator ─> CandidateChain
+LocalRecordRegistry┘            │                    │
+                                 ▼                    ▼
+                       MethodSelector ───────> UsageQueryCoordinator
+                                                      │
+              ┌───────────────────────────────────────┼───────────────┐
+              ▼                                       ▼               ▼
+      CapabilitySnapshot                        MethodStateStore  AlertEvaluator
+              │                                       │
+              ▼                                       ▼
+    MainPanel / FloatingWindow（按能力渲染）     指纹缓存 / 重试 / 单飞
+```
 
-| 数据来源 | 数据 |
+- **查询方法**（`IQueryMethod`）：描述 → 扫描 → 查询 三阶段，按“来源、能力、凭据范围”拆到可独立失败/回退的最小单元；套餐名称/planId 不参与。
+- **能力化快照**（`CapabilitySnapshot`）：报告用量、报告费用、估算成本、余额/额度、滚动窗口、响应遥测、Probe 独立表达；同一能力只选一份事实，不跨来源相加，不把连接探测冒充用量。
+- **自动扫描**：保存、端点/协议/凭据变化、指纹变化、连续失败、手动重扫触发；普通轮询只查已选方法。
+- **诊断工作台**：面板三栏 —— 配置与扫描状态 / 候选方法链 / 能力矩阵；候选并列时可“使用此方法”临时覆盖（仅运行时，重扫后恢复）。
+
+## 目录
+
+| 目录 | 职责 |
 |---|---|
-| 本地 | 仅支持读取 zcode 数据获取日 token 消耗量 |
-| DeepSeek 官方（控制台 platform.deepseek.com） | 官方用量接口（需登录会话，cookie 持久化，重启免登录） |
-| opencode go 套餐（opencode.ai） | 窗口限额；API-key 模式官方不提供 token 统计 |
-| Command Code 套餐（commandcode.ai） | GOAT/Pro/Max 等月额度 + 5h/周滚动窗口（官方 /alpha 控制面，Bearer API key） |
-| OpenAI / Anthropic 兼容端点 | 无官方用量端点，仅连接探测 + 模型列表 |
+| `Models/Usage/` | 领域契约：能力、来源、候选、快照、凭据引用 |
+| `Models/PageConfig.cs` | 方法无关页面配置 + envelope 迁移 |
+| `Services/QueryMethods/` | 查询方法实现 + 注册表 + 首期方法目录 |
+| `Services/Scanning/` | 指纹、扫描上下文、凭据解析、候选选择 |
+| `Services/Runtime/` | 页面运行时协调器、单飞、缓存、重试 |
+| `Services/Persistence/` | 方法状态存储（候选链/指纹） |
+| `UI/Diagnostics/` | 能力快照 / 诊断工作台 ViewModel |
+| `tests/` | 迁移、契约、选择、协调器单元测试 |
 
-## 构建
+## 已接入的查询方法
+
+已实现（真实端点，使用现有客户端）：
+
+- `endpoint.probe` —— 通用连接/鉴权/模型目录（任意协议）
+- `opencode.rolling-window.api-key` —— 5h/周/月 滚动窗口
+- `opencode.allowance.oauth` —— OAuth 会话窗口绝对额度
+- `deepseek.balance.api-key` —— 官方余额
+- `deepseek.console-usage.compat` —— 控制台会话用量（私有兼容，仅显式控制台页面启用）
+- `commandcode.allowance-window.compat` —— 月额度 + 5h/周窗口（私有兼容）
+- `local.zcode.usage` —— ZCode 本地 SQLite 记录（本地备选）
+
+已登记目录（凭据门控，待接入端点）：OpenRouter key/credits/activity、OpenAI Admin Usage/Costs、Anthropic Admin Usage/Costs、OpenCode Console 导出、xAI Management、Fireworks quota/usage 与本地 OpenCode/Claude Code/Codex/Gemini 记录。这些方法参与扫描并给出可解释的凭据/未接入状态，不会冒充可用来源。
+
+## 迁移
+
+- `pages.json` 使用文件级 `schemaVersion` envelope；旧 `List<Page>` 数组自动迁移，**页面 Id 稳定保留**，凭据继续用兼容 target `TokenUsageMonitorV3.ApiKey.<Id>`。
+- 未知 schema / 损坏 JSON / 重复 Id 只写入脱敏诊断，**不覆盖原文件**；写入为原子替换并保留 `.bak`。
+- 旧数据目录 `%APPDATA%\TokenUsageMonitorV3` 先读后迁移到 `TokenConsumptionMonitoring`；旧凭据 target、互斥量、自动启动键集中在 `Legacy` 兼容常量。
+- 项目 exe 名称保持 `TokenUsageMonitorV3`（覆盖升级入口不变）。
+
+## 构建与测试
 
 要求 .NET 8 SDK：
 
 ```bash
+# Release 构建（应用 + 测试）
+dotnet build TokenConsumptionMonitoring.sln -c Release
+
+# 单元测试（迁移 / 契约 / 选择 / 协调器）
+dotnet test tests/TokenConsumptionMonitoring.Tests/TokenConsumptionMonitoring.Tests.csproj -c Release
+
+# 发行单文件（Windows 验证 WPF / WebView2 / 凭据管理器 / 通知）
 dotnet publish -c Release -r win-x64 --self-contained \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-产物为单文件 `TokenUsageMonitorV3.exe`（免安装，双击运行）。
-
-安装包（Inno Setup 6）脚本见 `packaging/TokenUsage-Setup.iss`，先执行上述 publish，再编译该脚本即可生成安装程序。
+产物为单文件 `TokenUsageMonitorV3.exe`。安装包（Inno Setup 6）脚本见 `packaging/TokenUsage-Setup.iss`。
 
 ## 使用
 
 1. 托盘图标 / 悬浮窗 → 打开配置面板
-2. 「添加模型供应商」：填写名称、Base URL、API Key、API 格式（自动识别），可手动或自动拉取模型列表
-3. 「编辑」载入当前选中页面信息修改；「保存」保存当前配置
-4. 「登录」：按页面 API 类型自动分发登录方式（DeepSeek 控制台 → WebView2 登录；opencode → OAuth 设备码；API Key 页面无需登录）
-
-## 下载
-
-发布版见 [GitHub Releases](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases)：安装程序（`TokenUsage-Setup-1.1.0.exe`）、免安装版（`TokenUsage-V1.1.0-win-x64-portable.zip`）与升级包（`TokenUsageMonitorV3.exe`，直接覆盖旧版即可）。
+2. 「新建」：填写名称、Base URL、API Key、API 格式；保存后自动扫描可用查询方法并显示候选链
+3. 「编辑」载入选中页面修改；「重新扫描」手动重扫
+4. 「登录」按候选凭据类型分发（控制台会话 → WebView2；OAuth → 设备码；API Key 无需登录）
+5. 候选并列时在面板点击「使用此方法」临时覆盖自动选择
 
 ## 作者
 

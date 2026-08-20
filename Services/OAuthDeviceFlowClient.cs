@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// OpenCode 控制台 OAuth 设备码流（v2 已端到端验证：form-encoded、x-org-id、30 天 token）。

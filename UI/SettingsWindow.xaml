@@ -1,4 +1,4 @@
-<Window x:Class="TokenUsageMonitorV3.UI.SettingsWindow"
+<Window x:Class="TokenConsumptionMonitoring.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="设置 — Token Usage" Width="320" SizeToContent="Height"

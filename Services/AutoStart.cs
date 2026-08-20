@@ -1,12 +1,12 @@
 using Microsoft.Win32;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>开机自启：HKCU Run 键。</summary>
 public static class AutoStart
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName = "TokenUsageMonitorV3";
+    private const string ValueName = Legacy.AutoStartValueName;
 
     public static bool IsEnabled()
     {
@@ -24,7 +24,7 @@ public static class AutoStart
         if (key is null) return;
         if (enabled)
         {
-            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "TokenUsageMonitorV3.exe");
+            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, Legacy.ExeName);
             key.SetValue(ValueName, $"\"{exe}\"");
         }
         else

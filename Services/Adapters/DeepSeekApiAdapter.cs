@@ -1,7 +1,7 @@
 using System.Text.Json;
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>
 /// DeepSeek 官方 API 适配器（api.deepseek.com + API key）：

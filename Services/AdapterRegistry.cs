@@ -1,4 +1,4 @@
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>页面适配器类型（按 BaseURL 自动解析）。</summary>
 public enum AdapterKind

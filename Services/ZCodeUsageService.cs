@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// zcode 本地用量：读取 CLI SQLite 库（%USERPROFILE%\.zcode\cli\db\db.sqlite）model_usage 表，
@@ -19,6 +19,50 @@ public sealed class ZCodeUsageService
     public sealed record ProviderInfo(string Id, string Name, string? ApiKey, string? BaseUrl);
     public sealed record ProviderUsage(ProviderInfo Provider, List<ModelTokens> Models);
 
+    private static string DbPath => Path.Combine(ZCodeHome, "cli", "db", "db.sqlite");
+
+    /// <summary>本机是否存在 zcode 记录数据库（本地回退来源的第一步判定）。</summary>
+    public bool DatabaseExists => File.Exists(DbPath);
+
+    /// <summary>本地 provider 配置（id → 名称/API key/Base URL）；用于归属判定，不输出秘密。</summary>
+    public IReadOnlyList<ProviderInfo> GetProviders() => LoadProviders().Values.ToList();
+
+    /// <summary>
+    /// 轻量 schema 校验：复制主库 + WAL 后只读打开，确认 model_usage 表存在且可读。
+    /// 不把 schema 缺失/文件不可读当作零用量。
+    /// </summary>
+    public async Task<(bool Ok, string Error)> TryVerifySchemaAsync(CancellationToken ct)
+    {
+        if (!DatabaseExists) return (false, "zcode 数据库不存在");
+        var tempDir = Path.Combine(Path.GetTempPath(), Legacy.CurrentDataDirectoryName);
+        Directory.CreateDirectory(tempDir);
+        var tempDb = Path.Combine(tempDir, $"zcode_schema_{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            CopyShared(DbPath, tempDb);
+            CopyShared(DbPath + "-wal", tempDb + "-wal");
+            var ok = await Task.Run(() =>
+            {
+                var builder = new SqliteConnectionStringBuilder { DataSource = tempDb, Mode = SqliteOpenMode.ReadOnly };
+                using var conn = new SqliteConnection(builder.ToString());
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='model_usage'";
+                return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+            }, ct);
+            return ok ? (true, "") : (false, "model_usage 表缺失（schema 不兼容）");
+        }
+        catch (SqliteException ex)
+        {
+            Logger.LogException("zcode schema verify", ex);
+            return (false, $"zcode 数据库不可读：{ex.Message}");
+        }
+        finally
+        {
+            TryDelete(tempDb); TryDelete(tempDb + "-wal"); TryDelete(tempDb + "-shm");
+        }
+    }
+
     /// <summary>今日（本地时区）用量：按供应商归组（区分不同供应商的同名模型）。</summary>
     public async Task<List<ProviderUsage>> ComputeTodayByProviderAsync(CancellationToken ct)
     {
@@ -30,7 +74,7 @@ public sealed class ZCodeUsageService
         if (!File.Exists(dbPath)) return result;
 
         // db 被 zcode 进程持有：复制主库 + WAL 到临时目录后打开（复制窗口极小，WAL 尾部少量丢失可接受，下次刷新补齐）
-        var tempDir = Path.Combine(Path.GetTempPath(), "TokenUsageMonitorV3");
+        var tempDir = Path.Combine(Path.GetTempPath(), Legacy.CurrentDataDirectoryName);
         Directory.CreateDirectory(tempDir);
         var tempDb = Path.Combine(tempDir, $"zcode_{Guid.NewGuid():N}.sqlite");
         var acc = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);

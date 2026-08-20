@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>
 /// DeepSeek 控制台适配器：官方会话用量（WebView2 页面捕获 amount+cost，flash/pro 拆分 + 金额）。
