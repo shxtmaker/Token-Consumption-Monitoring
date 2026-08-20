@@ -1,4 +1,4 @@
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// API 协议与 key 格式：支持三大 API 协议。
@@ -34,13 +34,13 @@ public static class KeyFormat
         _ => "",
     };
 
-    /// <summary>凭据管理器 target（按协议分存）。</summary>
+    /// <summary>凭据管理器 target（按协议分存；兼容标识见 <see cref="Legacy"/>）。</summary>
     public static string CredentialTarget(Protocol p) => p switch
     {
-        Protocol.ChatCompletions => "TokenUsageMonitorV3.ApiKey.ChatCompletions",
-        Protocol.Responses => "TokenUsageMonitorV3.ApiKey.Responses",
-        Protocol.Anthropic => "TokenUsageMonitorV3.ApiKey.Anthropic",
-        _ => "TokenUsageMonitorV3.ApiKey",
+        Protocol.ChatCompletions => $"{Legacy.ApiKeyPrefix}.ChatCompletions",
+        Protocol.Responses => $"{Legacy.ApiKeyPrefix}.Responses",
+        Protocol.Anthropic => $"{Legacy.ApiKeyPrefix}.Anthropic",
+        _ => Legacy.ApiKeyPrefix,
     };
 
     /// <summary>供应商目录：设置页按供应商分开管理 API key。</summary>
@@ -55,7 +55,7 @@ public static class KeyFormat
             new("Custom", "自定义", Protocol.ChatCompletions),
         };
 
-        public string Target => $"TokenUsageMonitorV3.ApiKey.{Id}";
+        public string Target => $"{Legacy.ApiKeyPrefix}.{Id}";
         public string ProtocolLabel => Describe(Protocol);
     }
 

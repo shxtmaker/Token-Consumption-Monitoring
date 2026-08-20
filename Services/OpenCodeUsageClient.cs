@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// OpenCode 官方客户端：

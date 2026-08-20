@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>
 /// opencode 网关适配器：三窗口限额（/zen/go/v1/usage，Bearer key）+ 窗口绝对值（/api/go/status，OAuth 会话）。

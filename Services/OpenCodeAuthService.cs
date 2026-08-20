@@ -1,4 +1,4 @@
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>opencode OAuth 会话：设备码登录 / 凭据恢复 / 过期刷新 / token 供给（WindowLimit 适配器取绝对值用）。</summary>
 public sealed class OpenCodeAuthService

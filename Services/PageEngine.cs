@@ -1,111 +1,90 @@
 using System.Windows.Threading;
-using TokenUsageMonitorV3.Models;
-using TokenUsageMonitorV3.Services.Adapters;
+using TokenConsumptionMonitoring.Models;
+using TokenConsumptionMonitoring.Models.Usage;
+using TokenConsumptionMonitoring.Services.Runtime;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
+
+/// <summary>需要登录的入口类型（由候选凭据类别推断；API key / 本地记录不弹登录窗）。</summary>
+public enum LoginKind
+{
+    None,
+    OpenCode,       // OAuth 会话（设备码）
+    DeepSeekConsole,
+}
 
 /// <summary>
-/// 页面引擎（v4）：页面列表 → 适配器轮询 → 缓存 → 渲染当前页面到 MonitorState。
-/// 全部页面后台轮询（30 分钟）+ 当前页面缓存渲染（切页秒显）+ 60s 探测。
+/// 页面引擎（生命周期层）：只管理页面列表、活动页、轮询节奏与 UI dispatcher。
+/// 候选扫描、方法选择、能力查询、按能力回退和状态生成全部委托给 IPageRuntimeCoordinator。
 /// </summary>
 public sealed class PageEngine : IDisposable
 {
-    private readonly List<Page> _pages;
+    private readonly List<PageConfigRecord> _pages;
     private readonly MonitorState _state;
     private readonly AlertService _alerts;
     private readonly TrayIconService _tray;
     private readonly AppSettings _settings;
+    private readonly SettingsStore _settingsStore;
     private readonly Dispatcher _dispatcher;
-    private readonly Dictionary<string, IPageAdapter> _adapters = new();
-    private readonly Dictionary<string, PageData> _cache = new();
-    private readonly ZCodeUsageService _zcode;
-    // 适配器重建依赖（运行期新增页面时 SyncPages 用）
-    private readonly OpenCodeUsageClient _oc;
-    private readonly OpenCodeAuthService _auth;
-    private readonly DeepSeekSessionService _dsSession;
-    private readonly DeepSeekUsageClient _dsUsage;
-    private readonly CommandCodeUsageClient _commandCode;
-    private List<ZCodeUsageService.ProviderUsage> _lastDaily = new();
+    private readonly IPageRuntimeCoordinator _coordinator;
 
     private readonly CancellationTokenSource _cts = new();
     private Task? _pollLoop;
-    private Task? _probeLoop;
     private string? _activeId;
-    private ConnectionStatus _lastStatus = ConnectionStatus.Unknown;
+    private LoginKind _lastLoginKind = LoginKind.None;
 
     public event Action? StateChanged;
 
-    /// <summary>需要登录（按当前页适配器类型分发）。ConsoleSession→DeepSeek 登录窗；WindowLimit→OAuth。</summary>
-    public event Action<AdapterKind>? LoginRequired;
+    /// <summary>需要登录（按候选凭据类别分发：ConsoleSession→DeepSeek 登录窗；OAuth→OpenCode 设备码）。</summary>
+    public event Action<LoginKind>? LoginRequired;
 
-    /// <summary>当前激活页面（登录按钮按页面类型分发用）。</summary>
-    public Page? ActivePage => _pages.FirstOrDefault(p => p.Id == _activeId);
+    public PageConfigRecord? ActivePage => _pages.FirstOrDefault(p => p.Id == _activeId);
+
+    public IReadOnlyList<PageConfigRecord> Pages => _pages;
 
     public PageEngine(
-        List<Page> pages,
+        List<PageConfigRecord> pages,
         MonitorState state,
         AlertService alerts,
         TrayIconService tray,
         AppSettings settings,
+        SettingsStore settingsStore,
         Dispatcher dispatcher,
-        OpenCodeUsageClient opencodeClient,
-        OpenCodeAuthService auth,
-        DeepSeekSessionService dsSession,
-        DeepSeekUsageClient dsUsage,
-        CommandCodeUsageClient commandCode,
-        ZCodeUsageService zcode)
+        IPageRuntimeCoordinator coordinator)
     {
         _pages = pages;
         _state = state;
         _alerts = alerts;
         _tray = tray;
         _settings = settings;
+        _settingsStore = settingsStore;
         _dispatcher = dispatcher;
-        _zcode = zcode;
-        _oc = opencodeClient;
-        _auth = auth;
-        _dsSession = dsSession;
-        _dsUsage = dsUsage;
-        _commandCode = commandCode;
-
-        foreach (var p in pages)
-            _adapters[p.Id] = CreateAdapter(p, opencodeClient, auth, dsSession, dsUsage, commandCode);
+        _coordinator = coordinator;
     }
-
-    private static IPageAdapter CreateAdapter(Page p, OpenCodeUsageClient oc, OpenCodeAuthService auth,
-        DeepSeekSessionService session, DeepSeekUsageClient dsUsage, CommandCodeUsageClient commandCode)
-        => AdapterRegistry.Resolve(p.BaseUrl) switch
-    {
-        AdapterKind.WindowLimit => new WindowLimitAdapter(oc, auth),
-        AdapterKind.CommandCode => new CommandCodeAdapter(commandCode),
-        AdapterKind.ConsoleSession => new ConsoleSessionAdapter(session, dsUsage),
-        AdapterKind.DeepSeekApi => new DeepSeekApiAdapter(session, dsUsage),
-        _ => new ProbeAdapter(),
-    };
 
     public void Start()
     {
         _pollLoop = Task.Run(() => PollLoopAsync(_cts.Token));
-        _probeLoop = Task.Run(() => ProbeLoopAsync(_cts.Token));
     }
 
-    public void SetActivePage(string? pageId)
+    /// <summary>切换活动页：立即持久化 ActivePageId，并触发一次快速刷新。</summary>
+    public void SetActivePage(string? pageId, bool persist = true)
     {
         _activeId = pageId;
-        var page = _pages.FirstOrDefault(p => p.Id == pageId);
-        if (page is null) return;
+        if (persist && pageId is not null)
+            _settingsStore.SaveActivePage(pageId);
 
-        _state.SetCurrentPage(page.Name, AdapterRegistry.Resolve(page.BaseUrl));
-        RenderDailyUsage(_lastDaily);   // 切页即按新页 API key 重归属今日用量
-        if (_cache.TryGetValue(page.Id, out var data))
-            Render(page, data);
-        else
+        var page = _pages.FirstOrDefault(p => p.Id == pageId);
+        if (page is null)
         {
-            // 首次切换无缓存：清空三窗口，避免残留上一页数据误导
-            _state.Rolling.Update(-1, "", null, AlertLevel.None);
-            _state.Weekly.Update(-1, "", null, AlertLevel.None);
-            _state.Monthly.Update(-1, "", null, AlertLevel.None);
+            _state.SetPageState(false, "");
+            _state.ClearRuntime();
+            StateChanged?.Invoke();
+            return;
         }
+        _state.SetPageState(true, page.Name);
+        _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
+        StateChanged?.Invoke();
     }
 
     public void SwitchToNext()
@@ -115,22 +94,36 @@ public sealed class PageEngine : IDisposable
         SetActivePage(_pages[(idx + 1) % _pages.Count].Id);
     }
 
-    /// <summary>同步适配器表：面板新增/删除页面后调用（_adapters 仅构造时建，运行期新增页否则永不轮询）。</summary>
-    public void SyncPages()
-    {
-        var current = _pages.Select(p => p.Id).ToHashSet();
-        foreach (var p in _pages)
-            _adapters.TryAdd(p.Id, CreateAdapter(p, _oc, _auth, _dsSession, _dsUsage, _commandCode));
-        foreach (var id in _adapters.Keys.Where(k => !current.Contains(k)).ToList())
-        {
-            _adapters.Remove(id);
-            _cache.Remove(id);
-        }
-    }
-
+    /// <summary>手动强制刷新（重新扫描全部页面）。</summary>
     public async Task RefreshNowAsync()
     {
-        await PollAllAsync(CancellationToken.None);
+        await PollAllAsync(CancellationToken.None, manual: true);
+    }
+
+    /// <summary>保存/新建/删除后调用：对该页面执行一次完整重扫。</summary>
+    public async Task RescanPageAsync(PageConfigRecord page, ScanReason reason)
+    {
+        await RefreshPageSafeAsync(page, reason switch
+        {
+            ScanReason.ConfigurationChanged => RefreshReason.ConfigurationChanged,
+            ScanReason.Manual => RefreshReason.Manual,
+            _ => RefreshReason.PageSaved,
+        });
+    }
+
+    /// <summary>按 Id 查找页面并重扫（面板/托盘触发）。</summary>
+    public async Task RescanById(string pageId, ScanReason reason)
+    {
+        var page = _pages.FirstOrDefault(p => p.Id == pageId);
+        if (page is not null) await RescanPageAsync(page, reason);
+    }
+
+    /// <summary>临时覆盖自动选择（只作用于运行时；只刷新该页）。</summary>
+    public void SetTemporaryOverride(string pageId, string? methodId)
+    {
+        _coordinator.SetTemporaryOverride(pageId, methodId);
+        var page = _pages.FirstOrDefault(p => p.Id == pageId);
+        if (page is not null) _ = RefreshPageSafeAsync(page, RefreshReason.Manual);
     }
 
     private async Task PollLoopAsync(CancellationToken ct)
@@ -138,202 +131,72 @@ public sealed class PageEngine : IDisposable
         Logger.Log("page engine poll loop started");
         while (!ct.IsCancellationRequested)
         {
-            try { await PollAllAsync(ct); }
+            try { await PollAllAsync(ct, manual: false); }
             catch (Exception ex) { Logger.LogException("page engine poll", ex); }
             try { await Task.Delay(TimeSpan.FromMinutes(Math.Max(10, _settings.PollIntervalMinutes)), ct); }
             catch (OperationCanceledException) { break; }
         }
     }
 
-    private async Task ProbeLoopAsync(CancellationToken ct)
-    {
-        Logger.Log("page engine probe loop started");
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                var active = _pages.FirstOrDefault(p => p.Id == _activeId);
-                if (active is not null && _adapters.TryGetValue(active.Id, out var adapter))
-                {
-                    var (ok, error) = await adapter.ProbeAsync(active, ct);
-                    await _dispatcher.InvokeAsync(() =>
-                    {
-                        if (ok) return;
-                        var isAuth = error.Contains("401") || error.Contains("会话失效") || error.Contains("未登录") || error.Contains("未配置");
-                        if (isAuth)
-                        {
-                            _state.SetConnection(ConnectionStatus.AuthError, "需要登录/鉴权", error);
-                            RaiseLoginRequired(AdapterRegistry.Resolve(active.BaseUrl));
-                        }
-                        else
-                        {
-                            _state.SetConnection(ConnectionStatus.Offline, "连接中断", error);
-                            RaiseLoginRequired(AdapterRegistry.Resolve(active.BaseUrl));
-                        }
-                    });
-                }
-            }
-            catch (Exception ex) { Logger.LogException("page engine probe", ex); }
-            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, _settings.ProbeIntervalSeconds)), ct); }
-            catch (OperationCanceledException) { break; }
-        }
-    }
-
-    private async Task PollAllAsync(CancellationToken ct)
+    private async Task PollAllAsync(CancellationToken ct, bool manual)
     {
         foreach (var page in _pages)
-        {
-            if (!_adapters.TryGetValue(page.Id, out var adapter)) continue;
-            try
-            {
-                var data = await adapter.FetchAsync(page, ct);
-                _cache[page.Id] = data;
-                if (page.Id == _activeId)
-                    await _dispatcher.InvokeAsync(() => Render(page, data));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogException($"page fetch {page.Name}", ex);
-                // 失败时保留现有数据：渲染上次缓存（若有），状态如实显示连接中断
-                await _dispatcher.InvokeAsync(() =>
-                {
-                    if (page.Id == _activeId && _cache.TryGetValue(page.Id, out var cached)) Render(page, cached);
-                    _state.SetConnection(ConnectionStatus.Offline, "连接中断", ex.Message);
-                });
-            }
-        }
-        await RefreshDailyUsageAsync(ct);   // 每次轮询/手动刷新重算 zcode 今日用量
+            await RefreshPageSafeAsync(page, manual ? RefreshReason.Manual : RefreshReason.Poll);
     }
 
-    /// <summary>zcode 今日 token 消耗：本地 SQLite 扫描，按供应商归组后归属到当前页。</summary>
-    private async Task RefreshDailyUsageAsync(CancellationToken ct)
+    private async Task RefreshPageSafeAsync(PageConfigRecord page, RefreshReason reason)
     {
-        try
-        {
-            var list = await _zcode.ComputeTodayByProviderAsync(ct);
-            _lastDaily = list;
-            await _dispatcher.InvokeAsync(() => RenderDailyUsage(list));
-        }
-        catch (Exception ex) { Logger.LogException("zcode daily usage", ex); }
+        try { await RefreshPageAsync(page, reason, CancellationToken.None); }
+        catch (Exception ex) { Logger.LogException($"refresh {page.Name}", ex); }
     }
 
-    /// <summary>归属规则：有 key 页按 provider.apiKey 匹配；无 key 页（控制台会话）按 baseURL 与页面同主域匹配。行名仅显示模型名。</summary>
-    private void RenderDailyUsage(List<ZCodeUsageService.ProviderUsage> byProvider)
+    private async Task RefreshPageAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
-        var page = ActivePage;
-        if (page is null) { _state.SetDailyUsage(0, Array.Empty<(string, long)>()); return; }
-
-        // DeepSeek 系页面已有官方用量数据，不再显示本地 zcode 统计
-        var kind = AdapterRegistry.Resolve(page.BaseUrl);
-        if (kind == AdapterKind.ConsoleSession || kind == AdapterKind.DeepSeekApi)
-        {
-            _state.SetDailyUsage(0, Array.Empty<(string, long)>());
-            return;
-        }
-
-        string? pageKey = null;
-        if (page.NeedsKey)
-        {
-            if (!CredentialStore.TryReadSecret(page.KeyTarget, out var k) || string.IsNullOrEmpty(k))
-            {
-                _state.SetDailyUsage(0, Array.Empty<(string, long)>());
-                return;
-            }
-            pageKey = k;
-        }
-        var pageDomain = DomainOf(page.BaseUrl);
-
-        var rows = new List<(string Model, long Tokens)>();
-        foreach (var pu in byProvider)
-        {
-            var match = page.NeedsKey
-                ? string.Equals(pu.Provider.ApiKey, pageKey, StringComparison.Ordinal)
-                : DomainOf(pu.Provider.BaseUrl) is { } d && d == pageDomain;
-            if (!match) continue;
-            foreach (var m in pu.Models)
-                rows.Add((m.Model, m.Tokens));   // 仅显示模型名（去掉供应商前缀，对齐参考布局）
-        }
-        _state.SetDailyUsage(rows.Sum(r => r.Tokens), rows);
+        var result = await _coordinator.RefreshAsync(page, reason, ct);
+        // 非活动页的非扫描轮询结果不渲染到 UI（候选/快照保留在存储层）
+        if (result.Scan is null && page.Id != _activeId) return;
+        await _dispatcher.InvokeAsync(() => RenderRuntime(page, result));
     }
 
-    /// <summary>取 URL 主域（末两段，如 platform.deepseek.com → deepseek.com）。</summary>
-    private static string? DomainOf(string? url)
+    private void RenderRuntime(PageConfigRecord page, PageRuntimeResult result)
     {
-        if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return null;
-        var parts = u.Host.Split('.');
-        return parts.Length >= 2 ? $"{parts[^2]}.{parts[^1]}" : u.Host;
-    }
+        _state.ApplySnapshot(result.Snapshot, _settings.ShowDailyTokens);
+        _state.ApplyDiagnostics(page, result.Scan, result.Snapshot.Metadata.SelectedMethodId);
 
-    /// <summary>把页面数据渲染到 MonitorState（按适配器类型显示对应布局）+ 页面级告警（金额/token 选填）。</summary>
-    private void Render(Page page, PageData d)
-    {
-        // 金额/token 告警暂时停用（后续版本重新制定逻辑）——保留连接状态报警
-        var pageLevel = AlertLevel.None;
+        var alert = _alerts.EvaluateSnapshot(result.Snapshot, page.Id);
+        // 窗口告警级别反映到 UI 进度条（Snapshot.Windows 与快照 Windows 顺序一致）
+        for (var i = 0; i < _state.Snapshot.Windows.Count && i < alert.Windows.Count; i++)
+            _state.Snapshot.Windows[i].UpdateLevel(alert.Windows[i].Level);
 
-        switch (AdapterRegistry.Resolve(page.BaseUrl))
-        {
-            case AdapterKind.WindowLimit:
-            case AdapterKind.CommandCode:   // Command Code 套餐与 opencode 同构：5h/周/月 三窗口
-                if (d.Rolling is { } r)
-                    _state.Rolling.Update(r.Percent, r.Status, r.ResetsAt, AlertLevel.None);
-                else
-                    _state.Rolling.Update(-1, "", null, AlertLevel.None);   // 无数据清空，避免残留旧值
-                if (d.Weekly is { } w)
-                    _state.Weekly.Update(w.Percent, w.Status, w.ResetsAt, AlertLevel.None);
-                else
-                    _state.Weekly.Update(-1, "", null, AlertLevel.None);
-                if (d.Monthly is { } m)
-                    _state.Monthly.Update(m.Percent, m.Status, m.ResetsAt, AlertLevel.None);
-                else
-                    _state.Monthly.Update(-1, "", null, AlertLevel.None);
-                var winLevel = _alerts.EvaluateWindows(_state);
-                _tray.SetState(d.Status, winLevel > pageLevel ? winLevel : pageLevel);
-                break;
-
-            case AdapterKind.ConsoleSession:
-            case AdapterKind.DeepSeekApi:
-                long flashTokens = 0, proTokens = 0;
-                decimal flashCost = 0, proCost = 0;
-                foreach (var (model, tokens, cost) in d.ModelRows)
-                {
-                    if (model.Contains("flash", StringComparison.OrdinalIgnoreCase)) { flashTokens += tokens; flashCost += cost; }
-                    else if (model.Contains("pro", StringComparison.OrdinalIgnoreCase)) { proTokens += tokens; proCost += cost; }
-                }
-                _state.DeepSeekFlash.Set(flashTokens, flashCost);
-                _state.DeepSeekPro.Set(proTokens, proCost);
-                _state.SetDeepSeekUsage(d.TotalTokens, d.TotalCost, flashTokens, flashCost, proTokens, proCost);
-                if (AdapterRegistry.Resolve(page.BaseUrl) == AdapterKind.DeepSeekApi)
-                    _state.SetBalance(d.BalanceCny, d.BalanceCurrency);   // 整合页同时显示官方余额
-                _tray.SetState(d.Status, pageLevel > _alerts.LastWindowLevel ? pageLevel : _alerts.LastWindowLevel);
-                break;
-
-            default:
-                _state.SetProbeModels(d.Models);
-                _state.SetBalance(d.BalanceCny, d.BalanceCurrency);
-                _tray.SetState(d.Status, pageLevel);
-                break;
-        }
-
-        _state.SetLastSuccess(DateTimeOffset.UtcNow);
-        _state.SetConnection(d.Status, d.StatusLabel, d.Error);
-        RaiseLoginRequired(AdapterRegistry.Resolve(page.BaseUrl));
+        _tray.SetState(_state.Connection, alert.Overall);
+        RaiseLoginRequired(result);
         StateChanged?.Invoke();
     }
 
-    /// <summary>去抖：仅当状态由非 AuthError 转入 AuthError 时分发一次登录事件。</summary>
-    private void RaiseLoginRequired(AdapterKind kind)
+    /// <summary>去抖：仅当状态由非 AuthRequired 转入 AuthRequired 时分发一次登录事件；按凭据类别映射登录入口。</summary>
+    private void RaiseLoginRequired(PageRuntimeResult result)
     {
-        var was = _lastStatus;
-        _lastStatus = _state.Connection;
-        if (_state.Connection == ConnectionStatus.AuthError && was != ConnectionStatus.AuthError)
+        var kind = LoginKind.None;
+        if (result.Snapshot.Status == SnapshotStatus.AuthRequired)
+        {
+            kind = result.AuthCredentialClass switch
+            {
+                CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
+                CredentialClass.OAuthSession => LoginKind.OpenCode,
+                _ => LoginKind.None,
+            };
+        }
+
+        if (kind != LoginKind.None && _lastLoginKind != kind)
             LoginRequired?.Invoke(kind);
+        _lastLoginKind = result.Snapshot.Status == SnapshotStatus.AuthRequired && kind != LoginKind.None
+            ? kind : LoginKind.None;
     }
 
     public void Dispose()
     {
         _cts.Cancel();
         try { _pollLoop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
-        try { _probeLoop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _cts.Dispose();
     }
 }

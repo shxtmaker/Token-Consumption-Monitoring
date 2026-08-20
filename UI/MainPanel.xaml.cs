@@ -1,24 +1,27 @@
 using System.Windows;
 using System.Windows.Controls;
-using TokenUsageMonitorV3.Models;
-using TokenUsageMonitorV3.Services;
-using Page = TokenUsageMonitorV3.Models.Page;
+using TokenConsumptionMonitoring.Models;
+using TokenConsumptionMonitoring.Models.Usage;
+using TokenConsumptionMonitoring.Services;
+using TokenConsumptionMonitoring.UI.Diagnostics;
 using MessageBox = System.Windows.MessageBox;
 
-namespace TokenUsageMonitorV3.UI;
+namespace TokenConsumptionMonitoring.UI;
 
 public partial class MainPanel : Window
 {
-    private readonly PageStore _pageStore;
-    private readonly List<Page> _pages;
+    private readonly PageConfigStore _pageStore;
+    private readonly List<PageConfigRecord> _pages;
     private readonly List<string> _modelDraft = new();
     private KeyFormat.Protocol _protocol = KeyFormat.Protocol.ChatCompletions;
-    private Page? _editing;
+    private PageConfigRecord? _editing;
 
     public event Action? RefreshRequested;
     public event Action? LoginRequested;
     public event Action? PagesChanged;
     public event Action<string>? PageSwitchRequested;
+    public event Action<string>? RescanRequested;
+    public event Action<string, string?>? OverrideRequested;
 
     /// <summary>退出应用时放行真实关闭（平时 ✕ = 隐藏，保证实例可反复 Show）。</summary>
     public bool AllowClose { get; set; }
@@ -34,7 +37,7 @@ public partial class MainPanel : Window
         base.OnClosing(e);
     }
 
-    public MainPanel(PageStore pageStore, List<Page> pages, MonitorState state)
+    public MainPanel(PageConfigStore pageStore, List<PageConfigRecord> pages, MonitorState state)
     {
         InitializeComponent();
         _pageStore = pageStore;
@@ -47,6 +50,8 @@ public partial class MainPanel : Window
         RefreshPageCombo();
     }
 
+    public PageConfigRecord? ActivePage => PageCombo.SelectedItem as PageConfigRecord;
+
     public void RefreshPageCombo(string? selectId = null)
     {
         PageCombo.ItemsSource = null;
@@ -57,7 +62,6 @@ public partial class MainPanel : Window
         PageHintText.Text = _pages.Count == 0
             ? "当前没有页面——点击「新建」创建第一个 API 配置页面"
             : $"共 {_pages.Count} 个页面 · 小组件名称 = 页面名称";
-        UpdateSelectedInfo();
     }
 
     public void SetActivePageId(string? id)
@@ -72,7 +76,7 @@ public partial class MainPanel : Window
 
     private void PageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (PageCombo.SelectedItem is Page page)
+        if (PageCombo.SelectedItem is PageConfigRecord page)
         {
             PageSwitchRequested?.Invoke(page.Id);
             if (ProviderForm.Visibility == Visibility.Visible)
@@ -81,42 +85,20 @@ public partial class MainPanel : Window
                 FillForm(page);
             }
         }
-        UpdateSelectedInfo();
     }
 
-    /// <summary>下方信息区：以文本展示当前选中配置（key 只显示状态，不显示明文）。</summary>
-    private void UpdateSelectedInfo()
-    {
-        if (PageCombo.SelectedItem is not Page page) { SelectedPageInfo.Text = ""; return; }
-        var hasKey = CredentialStore.TryReadSecret(page.KeyTarget, out _);
-        var lines = new List<string>
-        {
-            $"名称：{page.Name}",
-            $"Base URL：{page.BaseUrl}",
-            page.NeedsKey
-                ? $"API Key：{(hasKey ? "已配置" : "未配置")}"
-                : "API Key：无需（控制台会话协议）",
-            page.Models.Count == 0
-                ? "模型：未配置"
-                : $"模型（{page.Models.Count}）：{string.Join("、", page.Models)}",
-        };
-        SelectedPageInfo.Text = string.Join("\n", lines);
-    }
-
-    // ---- 供应商表单（截图设计） ----
+    // ---- 供应商表单 ----
 
     private void AddProvider_Click(object sender, RoutedEventArgs e)
     {
-        // 始终新建：空白表单（不载入当前选中页面，避免"无法新增"）
         _editing = null;
         ClearForm();
         ProviderForm.Visibility = Visibility.Visible;
-        SelectedPageInfo.Visibility = Visibility.Collapsed;   // 进入新建：隐藏文本信息
     }
 
     private void EditPage_Click(object sender, RoutedEventArgs e)
     {
-        if (PageCombo.SelectedItem is not Page page)
+        if (PageCombo.SelectedItem is not PageConfigRecord page)
         {
             MessageBox.Show("请先创建并选中一个页面", "编辑", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
@@ -124,7 +106,6 @@ public partial class MainPanel : Window
         _editing = page;
         FillForm(page);
         ProviderForm.Visibility = Visibility.Visible;
-        SelectedPageInfo.Visibility = Visibility.Collapsed;   // 进入编辑：隐藏文本信息
     }
 
     private void ClearForm()
@@ -138,15 +119,16 @@ public partial class MainPanel : Window
         RefreshFormHints();
     }
 
-    private void FillForm(Page page)
+    private void FillForm(PageConfigRecord page)
     {
         PNameBox.Text = page.Name;
         PBaseUrlBox.Text = page.BaseUrl;
-        PProtocolCombo.SelectedItem = page.Protocol;
-        if (CredentialStore.TryReadSecret(page.KeyTarget, out var key))
+        PProtocolCombo.SelectedItem = page.ParseProtocol();
+        if (page.CredentialRef.ResolveClass() == CredentialClass.ApiKey
+            && CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var key))
             PKeyBox.Password = key ?? "";
         _modelDraft.Clear();
-        _modelDraft.AddRange(page.Models);
+        _modelDraft.AddRange(page.ConfiguredModelHints);
         PModelsList.ItemsSource = null;
         PModelsList.ItemsSource = _modelDraft;
         RefreshFormHints();
@@ -154,17 +136,14 @@ public partial class MainPanel : Window
 
     private void RefreshFormHints()
     {
-        var adapter = AdapterRegistry.Resolve(PBaseUrlBox.Text);
+        var provider = Services.Scanning.CredentialResolver.ProviderOf(PBaseUrlBox.Text);
         PAdapterHint.Text = PBaseUrlBox.Text.Length == 0
-            ? "输入 Base URL 后自动识别适配器（如 https://opencode.ai 或 https://platform.deepseek.com）"
-            : $"适配器：{AdapterRegistry.Describe(adapter)} · {KeyFormat.Describe(_protocol)}";
+            ? "输入 Base URL 后自动识别供应商提示（自动扫描会按能力选择查询方法）"
+            : $"识别提示：{(provider ?? "自定义/通用")} · {KeyFormat.Describe(_protocol)}";
         PKeyHint.Text = KeyFormat.KeyHint(_protocol);
-        PKeyPanelVisibility();
+        PKeyHint.Visibility = _protocol == KeyFormat.Protocol.DeepSeekConsole ? Visibility.Collapsed : Visibility.Visible;
         PModelsHint.Text = _modelDraft.Count == 0 ? "点击「+ 添加模型」或「自动拉取」" : $"{_modelDraft.Count} 个模型";
     }
-
-    private void PKeyPanelVisibility()
-        => PKeyHint.Visibility = _protocol == KeyFormat.Protocol.DeepSeekConsole ? Visibility.Collapsed : Visibility.Visible;
 
     private void PBaseUrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -236,60 +215,73 @@ public partial class MainPanel : Window
     {
         var name = PNameBox.Text.Trim();
         var baseUrl = PBaseUrlBox.Text.Trim();
-        if (string.IsNullOrEmpty(name)) { MessageBox.Show("请输入名称（如：智谱 GLM）"); return; }
+        if (string.IsNullOrEmpty(name)) { MessageBox.Show("请输入名称（如：DeepSeek 官方）"); return; }
         if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out _)) { MessageBox.Show("请输入有效的 Base URL"); return; }
 
-        var page = _editing ?? new Page();
+        var page = _editing ?? new PageConfigRecord();
         page.Name = name;
         page.BaseUrl = baseUrl;
-        page.Protocol = _protocol;
-        page.Models = new List<string>(_modelDraft);
+        page.Protocol = _protocol.ToString();
+        page.ConfiguredModelHints = new List<string>(_modelDraft);
 
-        // 金额/token 告警暂时停用（后续版本重新制定逻辑）——不写入
-
-        if (_protocol != KeyFormat.Protocol.DeepSeekConsole)
+        // 凭据引用：方法无关；旧页面 key 继续用兼容 target（TokenUsageMonitorV3.ApiKey.<Id>）
+        if (_protocol == KeyFormat.Protocol.DeepSeekConsole)
+            page.CredentialRef = CredentialReference.GlobalConsoleSession(Legacy.DeepSeekCookiesTarget);
+        else
         {
+            page.CredentialRef = CredentialReference.LegacyPageApiKey(page.Id);
             var key = PKeyBox.Password;
             if (string.IsNullOrEmpty(key) && _editing is null) { MessageBox.Show("请输入 API Key"); return; }
             if (!string.IsNullOrEmpty(key))
             {
                 var (valid, hint) = KeyFormat.Validate(_protocol, key);
                 if (!valid) { MessageBox.Show($"API Key 无效：{hint}"); return; }
-                CredentialStore.SaveSecret(page.KeyTarget, key);
+                CredentialStore.SaveSecret(Legacy.ApiKeyTarget(page.Id), key);
             }
         }
 
         if (_editing is null) _pages.Add(page);
-        _pageStore.Save(_pages);
+        _pageStore.Save(new PageConfigDocument { SchemaVersion = PageConfigDocument.CurrentSchemaVersion, Pages = _pages });
 
         ProviderForm.Visibility = Visibility.Collapsed;
-        SelectedPageInfo.Visibility = Visibility.Visible;     // 退出表单：恢复文本信息
         _editing = null;
-        RefreshPageCombo(page.Id); // combo 保持选中刚保存的页面
-        PageSwitchRequested?.Invoke(page.Id);
+        RefreshPageCombo(page.Id);
+        // 保存后触发自动扫描
+        RescanRequested?.Invoke(page.Id);
         PagesChanged?.Invoke();
     }
 
     private void PFormCancel_Click(object sender, RoutedEventArgs e)
     {
         ProviderForm.Visibility = Visibility.Collapsed;
-        SelectedPageInfo.Visibility = Visibility.Visible;     // 退出表单：恢复文本信息
         _editing = null;
     }
 
     private void PageDelete_Click(object sender, RoutedEventArgs e)
     {
-        if (PageCombo.SelectedItem is not Page page) return;
+        if (PageCombo.SelectedItem is not PageConfigRecord page) return;
         if (MessageBox.Show($"删除页面「{page.Name}」？（凭据管理器中的 key 保留）", "删除页面",
             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         _pages.Remove(page);
-        _pageStore.Save(_pages);
+        _pageStore.Save(new PageConfigDocument { SchemaVersion = PageConfigDocument.CurrentSchemaVersion, Pages = _pages });
         RefreshPageCombo();
         PagesChanged?.Invoke();
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => RefreshRequested?.Invoke();
     private void Login_Click(object sender, RoutedEventArgs e) => LoginRequested?.Invoke();
+
+    private void Rescan_Click(object sender, RoutedEventArgs e)
+    {
+        if (ActivePage is { } page) RescanRequested?.Invoke(page.Id);
+    }
+
+    private void UseCandidate_Click(object sender, RoutedEventArgs e)
+    {
+        if (ActivePage is not { } page) return;
+        if ((sender as FrameworkElement)?.DataContext is MethodCandidateViewModel candidate)
+            OverrideRequested?.Invoke(page.Id, candidate.IsCurrent ? null : candidate.MethodId);
+    }
 
     /// <summary>表单底部「保存」：校验并持久化当前表单配置。</summary>
     private void FormSave_Click(object sender, RoutedEventArgs e)

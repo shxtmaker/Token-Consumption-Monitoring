@@ -1,4 +1,4 @@
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// 美元 ↔ microCents 统一换算（1 美元 = 10⁷ microCents）。

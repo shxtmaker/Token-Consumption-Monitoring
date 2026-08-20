@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>模型列表拉取（GET /models，按协议认证；向导"自动拉取"按钮用）。</summary>
 public static class ModelFetcher

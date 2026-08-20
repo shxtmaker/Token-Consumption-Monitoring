@@ -1,6 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// DeepSeek 控制台会话（WebView2 内嵌登录 + 页面上下文 fetch）。
@@ -222,7 +222,7 @@ public sealed class DeepSeekSessionService : IDisposable
 
     // ---- Cookie 持久化（WebView2 session cookie 进程退出即失效，登录后保存、重启恢复） ----
 
-    private static readonly string CookieStoreTarget = "TokenUsageMonitorV3.DeepSeekCookies";
+    private static readonly string CookieStoreTarget = Legacy.DeepSeekCookiesTarget;
 
     /// <summary>把 platform.deepseek.com 域的 cookie 保存到凭据管理器（登录成功后调用）。</summary>
     private async Task SaveCookiesCoreAsync()

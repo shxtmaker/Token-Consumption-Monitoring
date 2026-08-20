@@ -1,10 +1,10 @@
-using TokenUsageMonitorV3.Services;
+using TokenConsumptionMonitoring.Services;
 
-namespace TokenUsageMonitorV3.Models;
+namespace TokenConsumptionMonitoring.Models;
 
 /// <summary>
 /// 页面：一套完整的 API 配置单元（v4 取代 Account）。
-/// key 不存于此——仅存引用，密钥在凭据管理器（TokenUsageMonitorV3.ApiKey.&lt;Id&gt;）。
+/// key 不存于此——仅存引用，密钥在凭据管理器（兼容 target Legacy.ApiKeyPrefix.&lt;Id&gt;）。
 /// </summary>
 public sealed class Page
 {
@@ -30,8 +30,8 @@ public sealed class Page
 
     public int SortOrder { get; set; }
 
-    /// <summary>凭据管理器 target（DeepSeekConsole 页面无 key）。</summary>
-    public string KeyTarget => $"TokenUsageMonitorV3.ApiKey.{Id}";
+    /// <summary>凭据管理器 target（DeepSeekConsole 页面无 key）。兼容标识，见 <see cref="Legacy"/>。</summary>
+    public string KeyTarget => Services.Legacy.ApiKeyTarget(Id);
 
     /// <summary>是否已配置 key（控制台会话协议无需 key）。</summary>
     public bool NeedsKey => Protocol != KeyFormat.Protocol.DeepSeekConsole;

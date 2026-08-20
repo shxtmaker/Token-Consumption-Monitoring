@@ -1,6 +1,6 @@
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services.Adapters;
+namespace TokenConsumptionMonitoring.Services.Adapters;
 
 /// <summary>适配器拉取结果（页面数据 + 连接状态）。</summary>
 public sealed class PageData

@@ -2,9 +2,9 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>托盘图标 + 气球通知。</summary>
 public sealed class TrayIconService : IDisposable

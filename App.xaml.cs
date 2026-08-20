@@ -1,10 +1,15 @@
 using System.Windows;
 using System.Windows.Threading;
-using TokenUsageMonitorV3.Models;
-using TokenUsageMonitorV3.Services;
-using TokenUsageMonitorV3.UI;
+using TokenConsumptionMonitoring.Models;
+using TokenConsumptionMonitoring.Models.Usage;
+using TokenConsumptionMonitoring.Services;
+using TokenConsumptionMonitoring.Services.Persistence;
+using TokenConsumptionMonitoring.Services.QueryMethods;
+using TokenConsumptionMonitoring.Services.Runtime;
+using TokenConsumptionMonitoring.Services.Scanning;
+using TokenConsumptionMonitoring.UI;
 
-namespace TokenUsageMonitorV3;
+namespace TokenConsumptionMonitoring;
 
 public partial class App : System.Windows.Application
 {
@@ -41,7 +46,7 @@ public partial class App : System.Windows.Application
             args.SetObserved();
         };
 
-        _mutex = new Mutex(true, "TokenUsageMonitorV3_SingleInstance", out var createdNew);
+        _mutex = new Mutex(true, Services.Legacy.MutexName, out var createdNew);
         if (!createdNew) { Shutdown(); return; }
 
         var settingsStore = new SettingsStore();
@@ -50,14 +55,14 @@ public partial class App : System.Windows.Application
 
         var state = new MonitorState();
         _state = state;
-        state.SetShowDailyUsage(_settings.ShowDailyTokens);
-        var opencode = new OpenCodeUsageClient();
-        var oauth = new OAuthDeviceFlowClient();
-        var openCodeAuth = new OpenCodeAuthService(oauth);   // 取代 MonitorService 的 opencode 职责
-        _openCodeAuth = openCodeAuth;
 
         _tray = new TrayIconService();
         var alerts = new AlertService(_settings, msg => _tray.Balloon("额度告警", msg));
+
+        // 基础服务
+        var opencode = new OpenCodeUsageClient();
+        var oauth = new OAuthDeviceFlowClient();
+        _openCodeAuth = new OpenCodeAuthService(oauth);
 
         // WebView2 登录窗（DeepSeek 会话宿主）：Show+Hide 触发 Loaded → 初始化 + 会话自检（cookie 持久，重启免登录）
         _dsLoginWindow = new DeepSeekLoginWindow(_deepSeekSession = new DeepSeekSessionService(Dispatcher));
@@ -69,72 +74,66 @@ public partial class App : System.Windows.Application
         _dsLoginWindow.Show();
         _dsLoginWindow.Hide();
         var deepSeekUsage = new DeepSeekUsageClient(_deepSeekSession);
+        var zcode = new ZCodeUsageService();
+        var commandCode = new CommandCodeUsageClient();
 
-        // v4 页面模型：加载页面列表（默认空页），空态引导
-        var pageStore = new Services.PageStore();
-        var pages = pageStore.Load();
+        // 统一方法注册表 + 运行时协调器（扫描/选择/回退/缓存）
+        var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, zcode, commandCode);
+        var fingerprints = new FingerprintBuilder(registry.Descriptors.Select(d => d.ImplementationVersion));
+        var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache(), zcode);
 
-        // 页面引擎（v4 唯一引擎：轮询 + 探测 + 渲染）
-        _pageEngine = new PageEngine(pages, state, alerts, _tray, _settings, Dispatcher,
-            opencode, openCodeAuth, _deepSeekSession, deepSeekUsage,
-            new CommandCodeUsageClient(), new ZCodeUsageService());
+        // 页面配置：版本化 envelope + 旧目录迁移
+        var pageStore = new PageConfigStore();
+        var loadResult = pageStore.Load();
+        var document = loadResult.Document;
+        if (document.IsCorrupt)
+        {
+            Services.Logger.Log($"pages 加载诊断：{document.Diagnostic}");
+            _tray.Balloon("页面配置未加载", document.Diagnostic ?? "pages.json 无法读取");
+        }
+        else if (loadResult.NeedsMigrateWrite)
+        {
+            Services.Logger.Log("pages 从旧目录迁移到新目录");
+            pageStore.Save(document);
+        }
+        var pages = document.Pages;
+
+        // 页面引擎：只管理生命周期，委托 coordinator
+        _pageEngine = new PageEngine(pages, state, alerts, _tray, _settings, settingsStore, Dispatcher, coordinator);
+        _openCodeAuth.TryLoadSession();   // 恢复 opencode OAuth 会话（OAuth 方法依赖登录状态）
 
         _floating = new FloatingWindow { DataContext = state };
         _floating.SetLocked(_settings.WidgetLocked);   // 恢复锁定状态（置顶/禁拖动）
         _floating.SetBackgroundOpacity(_settings.WidgetOpacityPercent);   // 恢复背景透明度
-        _panel = new MainPanel(pageStore, pages, state);   // 去 MonitorService，直接传 state
-        _panel.PagesChanged += () =>
-        {
-            var has = pages.Count > 0;
-            state.SetPageState(has, has ? pages[0].Name : "");
-            _pageEngine.SyncPages();   // 运行期新增/删除页面 → 重建适配器表，否则新页永不轮询
-            _pageEngine.SetActivePage(has ? pages[0].Id : null);
-            _ = _pageEngine.RefreshNowAsync();   // 新页立即拉一次，避免显示残留旧页数据
-        };
-        _panel.PageSwitchRequested += id => _pageEngine.SetActivePage(id);
-        if (pages.Count > 0) _panel.SetActivePageId(pages[0].Id);   // 面板下拉默认第一份配置（不沿用记忆）
-
-        // 登录分发：由 PageEngine 事件驱动
-        _pageEngine.LoginRequired += kind => Dispatcher.Invoke(() =>
-        {
-            if (kind == AdapterKind.ConsoleSession) ShowDeepSeekLogin();
-            else if (kind == AdapterKind.WindowLimit) _ = LoginOpenCodeAsync();
-        });
+        _panel = new MainPanel(pageStore, pages, state);
 
         WireEvents();
+
+        // 活动页恢复：设置记忆或第一项；空态引导
+        var activePage = pages.FirstOrDefault(p => p.Id == _settings.ActivePageId) ?? pages.FirstOrDefault();
+        if (activePage is not null)
+        {
+            _panel.SetActivePageId(activePage.Id);
+            _pageEngine.SetActivePage(activePage.Id);
+            _ = _pageEngine.RescanPageAsync(activePage, ScanReason.Startup);
+        }
+        else
+        {
+            state.SetPageState(false, "");
+            _tray.Balloon("创建你的第一个页面",
+                "当前没有 API 配置页面。打开面板 → 新建页面，填写 API key / Base URL / 协议 / 模型列表，保存后自动扫描查询方法。");
+        }
 
         if (_settings.AutoStart && !AutoStart.IsEnabled()) AutoStart.Set(true);
         if (!_settings.AutoStart && AutoStart.IsEnabled()) AutoStart.Set(false);
 
-        openCodeAuth.TryLoadSession();   // 恢复 opencode 会话（若有）
-
-        state.SetPageState(pages.Count > 0, pages.Count > 0 ? pages[0].Name : "");
         Services.Logger.Log($"pages loaded: {pages.Count} (active={_settings.ActivePageId ?? "(none)"})");
-        if (pages.Count == 0)
-        {
-            Services.Logger.Log("no pages — empty state, guide to create");
-            _tray.Balloon("创建你的第一个页面",
-                "当前没有 API 配置页面。打开面板 → 新建页面，填写 API key / Base URL / 协议 / 模型列表。");
-        }
-
-        // 激活页面：设置记忆或第一个
-        var activePage = pages.FirstOrDefault(p => p.Id == _settings.ActivePageId) ?? pages.FirstOrDefault();
-        if (activePage is not null)
-        {
-            _settings.ActivePageId = activePage.Id;
-            _pageEngine.SetActivePage(activePage.Id);
-        }
 
         _countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-        _countdownTimer.Tick += (_, _) =>
-        {
-            state.Rolling.UpdateCountdown();
-            state.Weekly.UpdateCountdown();
-            state.Monthly.UpdateCountdown();
-        };
+        _countdownTimer.Tick += (_, _) => state.UpdateCountdowns();
         _countdownTimer.Start();
 
-        _pageEngine.Start(); // v4 页面引擎接管轮询与探测
+        _pageEngine.Start();
         _floating.Show();
         if (!_settings!.ShowFloatingWidget) _floating.Hide();   // 桌面组件开关：按设置隐藏悬浮窗
         Services.Logger.Log("app started");
@@ -159,6 +158,29 @@ public partial class App : System.Windows.Application
 
         _panel!.RefreshRequested += () => _pageEngine?.RefreshNowAsync();
         _panel.LoginRequested += LoginCurrentPage;
+        _panel.PageSwitchRequested += id => _pageEngine?.SetActivePage(id);
+        _panel.PagesChanged += () =>
+        {
+            var engine = _pageEngine!;
+            // 活动页不存在/被删除时选择当前排序第一项并修正保存（新建/编辑/删除不无条件重置到第一项）
+            if (engine.ActivePage is null && engine.Pages.FirstOrDefault() is { } first)
+                engine.SetActivePage(first.Id);
+            else
+                _state!.SetPageState(engine.ActivePage is not null, engine.ActivePage?.Name ?? "");
+        };
+        _panel.RescanRequested += async pageId =>
+        {
+            if (_pageEngine is { } engine)
+                await engine.RescanById(pageId, ScanReason.Manual);
+        };
+        _panel.OverrideRequested += (pageId, methodId) => _pageEngine?.SetTemporaryOverride(pageId, methodId);
+
+        // 登录分发：由候选凭据类别决定（ConsoleSession→DeepSeek 登录窗；OAuth→OpenCode 设备码）
+        _pageEngine!.LoginRequired += kind =>
+        {
+            if (kind == LoginKind.DeepSeekConsole) ShowDeepSeekLogin();
+            else if (kind == LoginKind.OpenCode) _ = LoginOpenCodeAsync();
+        };
     }
 
     private void ShowDeepSeekLogin()
@@ -168,45 +190,29 @@ public partial class App : System.Windows.Application
         _dsLoginWindow.Activate();
     }
 
-    /// <summary>统一登录：根据当前页面 API 类型调用对应登录工具。</summary>
+    /// <summary>统一登录：根据当前页面状态调用对应登录入口。</summary>
     private void LoginCurrentPage()
     {
         var page = _pageEngine?.ActivePage;
         if (page is null)
         {
-            _tray!.Balloon("登录", "请先创建并选择页面（面板 → 添加模型供应商）。");
+            _tray!.Balloon("登录", "请先创建并选择页面（面板 → 新建）。");
             return;
         }
-        switch (AdapterRegistry.Resolve(page.BaseUrl))
+        var kind = page.CredentialRef.ResolveClass() switch
         {
-            case AdapterKind.ConsoleSession:
-            case AdapterKind.DeepSeekApi:      // 整合页的官方用量同样依赖控制台会话
-                ShowDeepSeekLogin();
-                break;
-            case AdapterKind.WindowLimit:
-                _ = LoginOpenCodeAsync();
-                break;
-            case AdapterKind.CommandCode:
-                ShowLoginHint("Command Code",
-                    "该套餐使用 Bearer API key 认证，无 OAuth 登录流程。\n\n" +
-                    (CommandCodeUsageClient.ReadLocalApiKey() is not null
-                        ? "已检测到 CLI 登录凭据（~/.commandcode/auth.json），未填写页面 key 时将自动回退使用。"
-                        : "请在左侧表单「API Key」栏填写 Studio API key；\n或先用 Command Code CLI 登录，将自动回退 ~/.commandcode/auth.json。"));
-                break;
+            CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
+            CredentialClass.OAuthSession => LoginKind.OpenCode,
+            _ => LoginKind.None,
+        };
+        switch (kind)
+        {
+            case LoginKind.DeepSeekConsole: ShowDeepSeekLogin(); break;
+            case LoginKind.OpenCode: _ = LoginOpenCodeAsync(); break;
             default:
-                ShowLoginHint("登录", "该页面使用 API Key 认证（无需登录）；连接探测自动进行。");
+                _tray!.Balloon("登录", "该页面使用 API Key 认证（无需登录）；自动扫描会探测连接与可用能力。");
                 break;
         }
-    }
-
-    /// <summary>登录类提示：面板打开时弹对话框（紧跟用户操作），否则回退托盘气泡。</summary>
-    private void ShowLoginHint(string title, string text)
-    {
-        if (_panel is { IsVisible: true })
-            System.Windows.MessageBox.Show(_panel, text, title,
-                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
-        else
-            _tray!.Balloon(title, text);
     }
 
     private async Task LoginOpenCodeAsync()
@@ -237,14 +243,10 @@ public partial class App : System.Windows.Application
         {
             _settingsWindow = new SettingsWindow(_settings!, _settingsStoreField!);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
-            _settingsWindow.FloatingWidgetToggleRequested += show =>
-            {
-                if (show) _floating!.Show(); else _floating!.Hide();
-            };
-            _settingsWindow.DailyUsageToggleRequested += show => _state!.SetShowDailyUsage(show);
+            _settingsWindow.FloatingWidgetToggleRequested += show => { if (show) _floating!.Show(); else _floating!.Hide(); };
+            _settingsWindow.DailyUsageToggleRequested += _ => _pageEngine?.RefreshNowAsync();
             _settingsWindow.OpacityChangeRequested += pct => _floating!.SetBackgroundOpacity(pct);
         }
-        // 不挂在悬浮窗下：避免关闭桌面组件时连带隐藏设置窗
         if (_panel?.IsVisible == true) _settingsWindow.Owner = _panel;
         _settingsWindow.Show();
         _settingsWindow.Activate();

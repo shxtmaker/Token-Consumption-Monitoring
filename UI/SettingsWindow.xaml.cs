@@ -1,9 +1,9 @@
 using System.Windows;
-using TokenUsageMonitorV3.Models;
-using TokenUsageMonitorV3.Services;
+using TokenConsumptionMonitoring.Models;
+using TokenConsumptionMonitoring.Services;
 using MessageBox = System.Windows.MessageBox;
 
-namespace TokenUsageMonitorV3.UI;
+namespace TokenConsumptionMonitoring.UI;
 
 /// <summary>系统设置（v4）：轮询/会话自检/自启/桌面组件。进入面板入口在托盘菜单。</summary>
 public partial class SettingsWindow : Window

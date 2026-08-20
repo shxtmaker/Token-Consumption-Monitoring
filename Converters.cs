@@ -2,10 +2,10 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
-using TokenUsageMonitorV3.Models;
+using TokenConsumptionMonitoring.Models;
 using Color = System.Windows.Media.Color;
 
-namespace TokenUsageMonitorV3.Converters;
+namespace TokenConsumptionMonitoring.Converters;
 
 public sealed class LevelToBrushConverter : IValueConverter
 {

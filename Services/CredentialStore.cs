@@ -1,12 +1,12 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>Windows 凭据管理器（opencode OAuth token 存储）。</summary>
 public static class CredentialStore
 {
-    public const string OAuthTarget = "TokenUsageMonitorV3.OAuthTokens";
+    public const string OAuthTarget = Legacy.OAuthTarget;
 
     private const int CRED_TYPE_GENERIC = 1;
     private const uint CRED_PERSIST_ENTERPRISE = 2;

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TokenUsageMonitorV3.Services;
+namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>Command Code 鉴权失败（HTTP 401 或业务码 UNAUTHORIZED）：专用异常，调用方按类型捕获而非解析消息。</summary>
 public sealed class CommandCodeAuthException : InvalidOperationException

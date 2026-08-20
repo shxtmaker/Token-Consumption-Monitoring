@@ -1,9 +1,9 @@
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
-using TokenUsageMonitorV3.Services;
+using TokenConsumptionMonitoring.Services;
 using MessageBox = System.Windows.MessageBox;
 
-namespace TokenUsageMonitorV3.UI;
+namespace TokenConsumptionMonitoring.UI;
 
 public partial class DeepSeekLoginWindow : Window
 {
