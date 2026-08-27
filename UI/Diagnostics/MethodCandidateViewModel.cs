@@ -21,6 +21,11 @@ public sealed class MethodCandidateViewModel : INotifyPropertyChanged
     public bool IsCurrent { get; private set; }
 
     public MethodCandidateViewModel(MethodCandidate candidate, string effectiveMethodId)
+        : this(candidate, new HashSet<string>(new[] { effectiveMethodId }, StringComparer.Ordinal))
+    {
+    }
+
+    public MethodCandidateViewModel(MethodCandidate candidate, IReadOnlySet<string> effectiveMethodIds)
     {
         MethodId = candidate.Method.MethodId;
         Confidence = candidate.Confidence;
@@ -33,7 +38,7 @@ public sealed class MethodCandidateViewModel : INotifyPropertyChanged
         StabilityLabel = StabilityText(candidate.Method.Stability);
         ScopeLabel = candidate.CredentialScope?.Describe() ?? candidate.Method.CredentialClass.ToString();
         StatusColorHex = ColorFor(candidate.Status);
-        IsCurrent = candidate.Method.MethodId == effectiveMethodId;
+        IsCurrent = effectiveMethodIds.Contains(candidate.Method.MethodId);
     }
 
     public void RefreshCurrent(string effectiveMethodId)

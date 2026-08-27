@@ -34,7 +34,7 @@ public sealed class ZCodeUsageService
     public async Task<(bool Ok, string Error)> TryVerifySchemaAsync(CancellationToken ct)
     {
         if (!DatabaseExists) return (false, "zcode 数据库不存在");
-        var tempDir = Path.Combine(Path.GetTempPath(), Legacy.CurrentDataDirectoryName);
+        var tempDir = Path.Combine(Path.GetTempPath(), AppIdentity.DataDirectoryName);
         Directory.CreateDirectory(tempDir);
         var tempDb = Path.Combine(tempDir, $"zcode_schema_{Guid.NewGuid():N}.sqlite");
         try
@@ -74,7 +74,7 @@ public sealed class ZCodeUsageService
         if (!File.Exists(dbPath)) return result;
 
         // db 被 zcode 进程持有：复制主库 + WAL 到临时目录后打开（复制窗口极小，WAL 尾部少量丢失可接受，下次刷新补齐）
-        var tempDir = Path.Combine(Path.GetTempPath(), Legacy.CurrentDataDirectoryName);
+        var tempDir = Path.Combine(Path.GetTempPath(), AppIdentity.DataDirectoryName);
         Directory.CreateDirectory(tempDir);
         var tempDb = Path.Combine(tempDir, $"zcode_{Guid.NewGuid():N}.sqlite");
         var acc = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);

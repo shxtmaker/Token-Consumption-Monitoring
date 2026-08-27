@@ -6,7 +6,7 @@ namespace TokenConsumptionMonitoring.Services;
 public static class AutoStart
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName = Legacy.AutoStartValueName;
+    private const string ValueName = AppIdentity.AutoStartValueName;
 
     public static bool IsEnabled()
     {
@@ -24,7 +24,7 @@ public static class AutoStart
         if (key is null) return;
         if (enabled)
         {
-            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, Legacy.ExeName);
+            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, AppIdentity.ExecutableName);
             key.SetValue(ValueName, $"\"{exe}\"");
         }
         else

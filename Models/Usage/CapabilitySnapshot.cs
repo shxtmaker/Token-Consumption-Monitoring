@@ -6,7 +6,15 @@ public sealed record SnapshotMetadata(
     string ConfigurationFingerprint,
     DateTimeOffset FetchedAt,
     string? SelectedMethodId,
-    RefreshReason Reason);
+    RefreshReason Reason,
+    IReadOnlyList<string>? SelectedMethodIds = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> EffectiveSelectedMethodIds =>
+        SelectedMethodIds is { Count: > 0 } ids
+            ? ids
+            : SelectedMethodId is { } id ? new[] { id } : Array.Empty<string>();
+}
 
 /// <summary>
 /// 能力化用量快照：某一查询时刻得到的、带数据来源和时间信息的用量观察结果。
@@ -14,7 +22,7 @@ public sealed record SnapshotMetadata(
 /// </summary>
 public sealed record CapabilitySnapshot
 {
-    /// <summary>无数据/空快照（兼容未扫描页面）。</summary>
+    /// <summary>无数据/空快照（用于尚未扫描的页面）。</summary>
     public static CapabilitySnapshot Empty(string pageId, string fingerprint) => new()
     {
         Metadata = new SnapshotMetadata(pageId, fingerprint, DateTimeOffset.UtcNow, null, RefreshReason.Poll),
@@ -40,6 +48,17 @@ public sealed record CapabilitySnapshot
         Capabilities.OfType<ProbeDiagnosticValue>();
     public IEnumerable<ResponseUsageValue> ResponseUsages =>
         Capabilities.OfType<ResponseUsageValue>();
+
+    /// <summary>页面快照是否包含任何回退的过期条目。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsStale => Status == SnapshotStatus.Stale || Capabilities.Any(c => c.IsStale);
+
+    /// <summary>按能力、来源和条目键索引；同一来源的不同窗口/币种不会互相覆盖。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyDictionary<CapabilityItemKey, CapabilityValue> Items =>
+        Capabilities
+            .GroupBy(CapabilityItemKey.For)
+            .ToDictionary(g => g.Key, g => g.Last());
 
     public IEnumerable<T> Of<T>() where T : CapabilityValue => Capabilities.OfType<T>();
 

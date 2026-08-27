@@ -5,9 +5,8 @@ using TokenConsumptionMonitoring.Services.Scanning;
 namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
-/// commandcode.allowance-window.compat：Command Code /alpha 私有控制面的窗口额度（5h/周）与月额度兼容方法。
-/// 私有兼容来源：仅 commandcode.ai 页面（显式配置）启用；monthlyCredits 缺失时不伪造月额度，
-/// 不复用全量历史 totalCost 兜底当前周期消费。套餐名称仅作元数据，不参与方法选择。
+/// commandcode.allowance-window.compat：Command Code /alpha 私有控制面的窗口额度（5h/周）。
+/// 私有兼容来源：仅在页面显式启用后参与；只保留服务端直接返回的窗口字段。
 /// </summary>
 public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
 {
@@ -35,6 +34,10 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
                 "Base URL 不匹配 Command Code（低置信度提示）",
                 evidence: new[] { DetectionEvidence.UrlHint(page.BaseUrl) });
 
+        if (!page.EnabledCompatibilityMethods.Contains(Descriptor.MethodId, StringComparer.Ordinal))
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported,
+                "私有兼容方法未显式启用");
+
         var key = ResolveKey(page);
         if (key is null)
             return MethodSupport.AuthRequired(Descriptor, "未配置 Command Code API key（页面 key 或本地 CLI 登录）",
@@ -54,13 +57,21 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         {
             return MethodSupport.AuthRequired(Descriptor, "Command Code key 无效（401/UNAUTHORIZED）");
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        catch (QueryTransportException ex)
+        {
+            return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
+        }
+        catch (HttpRequestException)
         {
             return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
         }
         catch (InvalidOperationException ex)
         {
-            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, ex.Message);
+            return MethodSupport.NotAvailable(Descriptor, QueryFailureClassifier.StatusOf(ex), ex.Message);
         }
     }
 
@@ -82,29 +93,6 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         AddWindow(capabilities, usage.Credits?.Limits?.FiveHour, "commandcode.fiveHour", "5h 窗口", scope, source);
         AddWindow(capabilities, usage.Credits?.Limits?.Weekly, "commandcode.weekly", "周窗口", scope, source);
 
-        // 月额度：仅当存在套餐月上限与计费周期时发布；缺失时省略而不是伪造
-        var monthlyLimit = usage.Plan?.MonthlyCredits;
-        if (monthlyLimit is { } limit && usage.Subscription?.CurrentPeriodEnd is { } periodEnd)
-        {
-            // 月剩余优先取 API 返回的 monthlyCredits；缺失时回退 套餐总额 − 周期消费（标记 estimated）
-            double? remaining = usage.Credits?.MonthlyCredits;
-            var fromTotalCost = false;
-            if (remaining is null && usage.TotalCost is { } cost)
-            {
-                remaining = Math.Max(0, (double)limit - cost);
-                fromTotalCost = true;
-            }
-            if (remaining is { } rem)
-            {
-                capabilities.Add(new BalanceQuotaValue(
-                    CapabilityKind.BalanceOrQuota, source, scope,
-                    new Coverage(usage.Subscription.CurrentPeriodStart, periodEnd, Granularity.PerWindow), DateTimeOffset.UtcNow,
-                    Confidence: 0.95, IsPrivate: true, IsEstimated: fromTotalCost,
-                    Balance: null, Used: Math.Max(0, (decimal)limit - (decimal)rem), Limit: limit, Remaining: (decimal)rem,
-                    Currency: "USD", Unit: "monthly-credits", ExpiresAt: periodEnd));
-            }
-        }
-
         return new MethodQueryResult(capabilities,
             capabilities.Count > 0 ? SnapshotStatus.Success : SnapshotStatus.NoData,
             capabilities.Count > 0 ? null : new FailureInfo(CandidateStatus.NoReliableUsage, "未解析到窗口/额度能力", DateTimeOffset.UtcNow),
@@ -114,19 +102,20 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
     private static void AddWindow(List<CapabilityValue> list, CommandCodeUsageClient.WindowLimit? w, string key, string name,
         CredentialScope scope, SourceIdentity source)
     {
-        if (w is null || w.Cap <= 0) return;
+        if (w is null || w.Limit is not { } limit || limit <= 0) return;
         list.Add(new RollingWindowValue(
             CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
             Confidence: 1.0, IsPrivate: true, IsEstimated: false,
             WindowKey: key, WindowName: name, Status: "正常",
-            Used: w.LimitMicroCents, Limit: w.LimitMicroCents, Remaining: w.RemainingMicroCents,
+            Used: w.UsedMicroCents, Limit: w.LimitMicroCents, Remaining: w.RemainingMicroCents,
             Percent: w.Percent, ResetsAt: w.ResetAt, Unit: "microCents"));
     }
 
     /// <summary>key 优先级：页面凭据 → 本地 CLI 登录 apiKey（本地凭据发现，不复制到页面配置）。</summary>
     private static string? ResolveKey(PageConfigRecord page)
     {
-        var pageKey = CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var k) && !string.IsNullOrWhiteSpace(k)
+        var pageKey = page.CredentialRef.Target is { } target
+            && CredentialStore.TryReadSecret(target, out var k) && !string.IsNullOrWhiteSpace(k)
             ? k : null;
         return pageKey ?? CommandCodeUsageClient.ReadLocalApiKey();
     }

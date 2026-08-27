@@ -10,6 +10,14 @@ namespace TokenConsumptionMonitoring.UI;
 
 public partial class MainPanel : Window
 {
+    private static readonly string[] CompatibilityMethodIds =
+    {
+        "opencode.rolling-window.api-key",
+        "opencode.allowance.oauth",
+        "commandcode.allowance-window.compat",
+        "deepseek.console-usage.compat",
+    };
+
     private readonly PageConfigStore _pageStore;
     private readonly List<PageConfigRecord> _pages;
     private readonly List<string> _modelDraft = new();
@@ -46,6 +54,7 @@ public partial class MainPanel : Window
 
         PProtocolCombo.ItemsSource = Enum.GetValues<KeyFormat.Protocol>();
         PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
+        PCompatibilityBox.IsChecked = false;
 
         RefreshPageCombo();
     }
@@ -116,6 +125,7 @@ public partial class MainPanel : Window
         _modelDraft.Clear();
         PModelsList.ItemsSource = null;
         PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
+        PCompatibilityBox.IsChecked = false;
         RefreshFormHints();
     }
 
@@ -124,6 +134,8 @@ public partial class MainPanel : Window
         PNameBox.Text = page.Name;
         PBaseUrlBox.Text = page.BaseUrl;
         PProtocolCombo.SelectedItem = page.ParseProtocol();
+        PCompatibilityBox.IsChecked = page.EnabledCompatibilityMethods.Count > 0;
+        PKeyBox.Password = "";
         if (page.CredentialRef.ResolveClass() == CredentialClass.ApiKey
             && CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var key))
             PKeyBox.Password = key ?? "";
@@ -137,7 +149,7 @@ public partial class MainPanel : Window
     private void RefreshFormHints()
     {
         var provider = Services.Scanning.CredentialResolver.ProviderOf(PBaseUrlBox.Text);
-        PAdapterHint.Text = PBaseUrlBox.Text.Length == 0
+        PProviderHint.Text = PBaseUrlBox.Text.Length == 0
             ? "输入 Base URL 后自动识别供应商提示（自动扫描会按能力选择查询方法）"
             : $"识别提示：{(provider ?? "自定义/通用")} · {KeyFormat.Describe(_protocol)}";
         PKeyHint.Text = KeyFormat.KeyHint(_protocol);
@@ -176,6 +188,47 @@ public partial class MainPanel : Window
         PKeyHint.Foreground = valid
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x7F, 0xC9, 0xA0))
             : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE5, 0x48, 0x48));
+    }
+
+    private void DiagnosticsGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var wide = e.NewSize.Width >= 980;
+        if (wide)
+        {
+            DiagnosticsColumn0.Width = new GridLength(1, GridUnitType.Star);
+            DiagnosticsColumn1.Width = new GridLength(1, GridUnitType.Star);
+            DiagnosticsColumn2.Width = new GridLength(1, GridUnitType.Star);
+            DiagnosticsRow0.Height = new GridLength(1, GridUnitType.Star);
+            DiagnosticsRow1.Height = new GridLength(0);
+            DiagnosticsRow2.Height = new GridLength(0);
+            Grid.SetColumn(ConfigDiagnosticsPanel, 0);
+            Grid.SetRow(ConfigDiagnosticsPanel, 0);
+            Grid.SetColumn(CandidateDiagnosticsPanel, 1);
+            Grid.SetRow(CandidateDiagnosticsPanel, 0);
+            Grid.SetColumn(CapabilityDiagnosticsPanel, 2);
+            Grid.SetRow(CapabilityDiagnosticsPanel, 0);
+            ConfigDiagnosticsPanel.Margin = new Thickness(0, 0, 6, 0);
+            CandidateDiagnosticsPanel.Margin = new Thickness(0, 0, 6, 0);
+            CapabilityDiagnosticsPanel.Margin = new Thickness(0);
+        }
+        else
+        {
+            DiagnosticsColumn0.Width = new GridLength(1, GridUnitType.Star);
+            DiagnosticsColumn1.Width = new GridLength(0);
+            DiagnosticsColumn2.Width = new GridLength(0);
+            DiagnosticsRow0.Height = GridLength.Auto;
+            DiagnosticsRow1.Height = GridLength.Auto;
+            DiagnosticsRow2.Height = GridLength.Auto;
+            Grid.SetColumn(ConfigDiagnosticsPanel, 0);
+            Grid.SetRow(ConfigDiagnosticsPanel, 0);
+            Grid.SetColumn(CandidateDiagnosticsPanel, 0);
+            Grid.SetRow(CandidateDiagnosticsPanel, 1);
+            Grid.SetColumn(CapabilityDiagnosticsPanel, 0);
+            Grid.SetRow(CapabilityDiagnosticsPanel, 2);
+            ConfigDiagnosticsPanel.Margin = new Thickness(0, 0, 0, 6);
+            CandidateDiagnosticsPanel.Margin = new Thickness(0, 0, 0, 6);
+            CapabilityDiagnosticsPanel.Margin = new Thickness(0);
+        }
     }
 
     private void PAddModel_Click(object sender, RoutedEventArgs e)
@@ -218,30 +271,57 @@ public partial class MainPanel : Window
         if (string.IsNullOrEmpty(name)) { MessageBox.Show("请输入名称（如：DeepSeek 官方）"); return; }
         if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out _)) { MessageBox.Show("请输入有效的 Base URL"); return; }
 
-        var page = _editing ?? new PageConfigRecord();
+        var editing = _editing;
+        var previousSelectedId = (PageCombo.SelectedItem as PageConfigRecord)?.Id;
+        var page = editing is null ? new PageConfigRecord() : ClonePage(editing);
         page.Name = name;
         page.BaseUrl = baseUrl;
         page.Protocol = _protocol.ToString();
         page.ConfiguredModelHints = new List<string>(_modelDraft);
 
-        // 凭据引用：方法无关；旧页面 key 继续用兼容 target（TokenUsageMonitorV3.ApiKey.<Id>）
+        // 凭据引用与查询方法解耦；私有兼容来源必须由高级开关显式启用。
+        page.EnabledCompatibilityMethods = PCompatibilityBox.IsChecked == true
+            ? editing is { EnabledCompatibilityMethods.Count: > 0 }
+                ? new List<string>(editing.EnabledCompatibilityMethods)
+                : CompatibilityMethodIds.ToList()
+            : new List<string>();
+        string? secretToSave = null;
+        string? secretTarget = null;
         if (_protocol == KeyFormat.Protocol.DeepSeekConsole)
-            page.CredentialRef = CredentialReference.GlobalConsoleSession(Legacy.DeepSeekCookiesTarget);
+            page.CredentialRef = CredentialReference.GlobalConsoleSession(AppIdentity.DeepSeekCookiesTarget);
         else
         {
-            page.CredentialRef = CredentialReference.LegacyPageApiKey(page.Id);
+            page.CredentialRef = CredentialReference.PageApiKey(page.Id);
             var key = PKeyBox.Password;
             if (string.IsNullOrEmpty(key) && _editing is null) { MessageBox.Show("请输入 API Key"); return; }
             if (!string.IsNullOrEmpty(key))
             {
                 var (valid, hint) = KeyFormat.Validate(_protocol, key);
                 if (!valid) { MessageBox.Show($"API Key 无效：{hint}"); return; }
-                CredentialStore.SaveSecret(Legacy.ApiKeyTarget(page.Id), key);
+                secretTarget = AppIdentity.ApiKeyTarget(page.Id);
+                secretToSave = key;
             }
         }
 
-        if (_editing is null) _pages.Add(page);
-        _pageStore.Save(new PageConfigDocument { SchemaVersion = PageConfigDocument.CurrentSchemaVersion, Pages = _pages });
+        var editingIndex = editing is null ? -1 : _pages.IndexOf(editing);
+        if (editing is null) _pages.Add(page);
+        else if (editingIndex >= 0) _pages[editingIndex] = page;
+        var saveResult = _pageStore.Save(new PageConfigDocument
+        {
+            SchemaVersion = PageConfigDocument.CurrentSchemaVersion,
+            Pages = _pages,
+        });
+        if (!saveResult.Succeeded)
+        {
+            if (editing is null) _pages.Remove(page);
+            else if (editingIndex >= 0) _pages[editingIndex] = editing;
+            RefreshPageCombo(editing?.Id ?? previousSelectedId);
+            MessageBox.Show(saveResult.Diagnostic ?? "页面配置保存失败", "保存失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (secretToSave is not null && secretTarget is not null)
+            CredentialStore.SaveSecret(secretTarget, secretToSave);
 
         ProviderForm.Visibility = Visibility.Collapsed;
         _editing = null;
@@ -262,8 +342,20 @@ public partial class MainPanel : Window
         if (PageCombo.SelectedItem is not PageConfigRecord page) return;
         if (MessageBox.Show($"删除页面「{page.Name}」？（凭据管理器中的 key 保留）", "删除页面",
             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        var index = _pages.IndexOf(page);
         _pages.Remove(page);
-        _pageStore.Save(new PageConfigDocument { SchemaVersion = PageConfigDocument.CurrentSchemaVersion, Pages = _pages });
+        var saveResult = _pageStore.Save(new PageConfigDocument
+        {
+            SchemaVersion = PageConfigDocument.CurrentSchemaVersion,
+            Pages = _pages,
+        });
+        if (!saveResult.Succeeded)
+        {
+            if (index >= 0) _pages.Insert(index, page);
+            RefreshPageCombo(page.Id);
+            MessageBox.Show(saveResult.Diagnostic ?? "页面配置保存失败", "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
         RefreshPageCombo();
         PagesChanged?.Invoke();
     }
@@ -289,4 +381,25 @@ public partial class MainPanel : Window
         try { SavePage(); }
         catch (System.ComponentModel.Win32Exception ex) { MessageBox.Show(ex.Message); }
     }
+
+    private static PageConfigRecord ClonePage(PageConfigRecord page) => new()
+    {
+        Id = page.Id,
+        Name = page.Name,
+        BaseUrl = page.BaseUrl,
+        Protocol = page.Protocol,
+        CredentialRef = page.CredentialRef,
+        ConfiguredModelHints = new List<string>(page.ConfiguredModelHints),
+        EnabledCompatibilityMethods = new List<string>(page.EnabledCompatibilityMethods),
+        SortOrder = page.SortOrder,
+        Deprecated = page.Deprecated is { } deprecated
+            ? new DeprecatedPageSettings
+            {
+                AmountWarnCny = deprecated.AmountWarnCny,
+                AmountCriticalCny = deprecated.AmountCriticalCny,
+                TokenWarn = deprecated.TokenWarn,
+                TokenCritical = deprecated.TokenCritical,
+            }
+            : null,
+    };
 }

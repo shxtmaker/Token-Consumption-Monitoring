@@ -71,7 +71,7 @@ public sealed class PageEngine : IDisposable
     public void SetActivePage(string? pageId, bool persist = true)
     {
         _activeId = pageId;
-        if (persist && pageId is not null)
+        if (persist)
             _settingsStore.SaveActivePage(pageId);
 
         var page = _pages.FirstOrDefault(p => p.Id == pageId);
@@ -83,6 +83,22 @@ public sealed class PageEngine : IDisposable
             return;
         }
         _state.SetPageState(true, page.Name);
+        if (_coordinator.TryGetSnapshot(page.Id, out var cached))
+        {
+            // 切页先投影该页已有状态，再等待网络刷新，避免把上一页的数值留在界面上。
+            _state.ApplySnapshot(cached, _settings.ShowDailyTokens);
+            if (_coordinator.TryGetScanReport(page.Id, out var cachedScan))
+                _state.ApplyDiagnostics(page, cachedScan, cached.Metadata.SelectedMethodId);
+            else
+                _state.ApplyDiagnostics(page, null, cached.Metadata.SelectedMethodId);
+            var cachedAlert = _alerts.EvaluateSnapshot(cached, page.Id);
+            _tray.SetState(_state.Connection, cachedAlert.Overall);
+        }
+        else
+        {
+            _state.ClearRuntime();
+            _state.ApplyDiagnostics(page, null, null);
+        }
         _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
         StateChanged?.Invoke();
     }
@@ -97,7 +113,7 @@ public sealed class PageEngine : IDisposable
     /// <summary>手动强制刷新（重新扫描全部页面）。</summary>
     public async Task RefreshNowAsync()
     {
-        await PollAllAsync(CancellationToken.None, manual: true);
+        await PollAllAsync(_cts.Token, manual: true);
     }
 
     /// <summary>保存/新建/删除后调用：对该页面执行一次完整重扫。</summary>
@@ -123,7 +139,7 @@ public sealed class PageEngine : IDisposable
     {
         _coordinator.SetTemporaryOverride(pageId, methodId);
         var page = _pages.FirstOrDefault(p => p.Id == pageId);
-        if (page is not null) _ = RefreshPageSafeAsync(page, RefreshReason.Manual);
+        if (page is not null) _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
     }
 
     private async Task PollLoopAsync(CancellationToken ct)
@@ -140,28 +156,36 @@ public sealed class PageEngine : IDisposable
 
     private async Task PollAllAsync(CancellationToken ct, bool manual)
     {
-        foreach (var page in _pages)
-            await RefreshPageSafeAsync(page, manual ? RefreshReason.Manual : RefreshReason.Poll);
+        var reason = manual ? RefreshReason.Manual : RefreshReason.Poll;
+        await Task.WhenAll(_pages.Select(page => RefreshPageSafeAsync(page, reason)));
     }
 
     private async Task RefreshPageSafeAsync(PageConfigRecord page, RefreshReason reason)
     {
-        try { await RefreshPageAsync(page, reason, CancellationToken.None); }
+        try { await RefreshPageAsync(page, reason, _cts.Token); }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
         catch (Exception ex) { Logger.LogException($"refresh {page.Name}", ex); }
     }
 
     private async Task RefreshPageAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
         var result = await _coordinator.RefreshAsync(page, reason, ct);
-        // 非活动页的非扫描轮询结果不渲染到 UI（候选/快照保留在存储层）
-        if (result.Scan is null && page.Id != _activeId) return;
-        await _dispatcher.InvokeAsync(() => RenderRuntime(page, result));
+        // 所有页面都可以刷新，但只有活动页能写入 MonitorState、托盘和浮窗。
+        await _dispatcher.InvokeAsync(() =>
+        {
+            if (page.Id == _activeId) RenderRuntime(page, result);
+        });
     }
 
     private void RenderRuntime(PageConfigRecord page, PageRuntimeResult result)
     {
         _state.ApplySnapshot(result.Snapshot, _settings.ShowDailyTokens);
-        _state.ApplyDiagnostics(page, result.Scan, result.Snapshot.Metadata.SelectedMethodId);
+        if (result.Scan is { } scan)
+            _state.ApplyDiagnostics(page, scan, result.Snapshot.Metadata.SelectedMethodId);
+        else if (_coordinator.TryGetScanReport(page.Id, out var cachedScan))
+            _state.ApplyDiagnostics(page, cachedScan, result.Snapshot.Metadata.SelectedMethodId);
+        else
+            _state.ApplyDiagnostics(page, null, result.Snapshot.Metadata.SelectedMethodId);
 
         var alert = _alerts.EvaluateSnapshot(result.Snapshot, page.Id);
         // 窗口告警级别反映到 UI 进度条（Snapshot.Windows 与快照 Windows 顺序一致）

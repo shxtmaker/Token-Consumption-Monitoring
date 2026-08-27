@@ -1,21 +1,22 @@
-; Token Usage V1.1.0 安装脚本（Inno Setup 6）
+; Token Consumption Monitoring V1.2.0 安装脚本（Inno Setup 6）
 ; 前置：先执行 dotnet publish -c Release -o publish（见 README 构建章节）
-#define MyAppName "Token Usage"
-#define MyAppVersion "1.1.0"
+#define MyAppName "TokenConsumptionMonitoring"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "shxtmaker"
-#define MyAppExeName "TokenUsageMonitorV3.exe"
+#define MyAppExeName "TokenConsumptionMonitoring.exe"
 
 [Setup]
-AppId={{8F1B7C0E-5D3A-4B2E-9C6F-2A7B4E9D1C05}
+; 使用独立 AppId，名称迁移不声明对旧安装的覆盖升级。
+AppId={{C5D7E9A1-4B62-4F38-9A07-8E1C3D6B2A54}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL=https://github.com/shxtmaker/Token-Consumption-Monitoring
-DefaultDirName={autopf}\TokenUsage
+DefaultDirName={autopf}\TokenConsumptionMonitoring
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
-OutputBaseFilename=TokenUsage-Setup-{#MyAppVersion}
+OutputBaseFilename=TokenConsumptionMonitoring-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

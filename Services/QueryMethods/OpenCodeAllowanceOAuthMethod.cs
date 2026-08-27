@@ -5,8 +5,8 @@ using TokenConsumptionMonitoring.Services.Scanning;
 namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
-/// opencode.allowance.oauth：opencode 网关 + 全局 OAuth 会话 → 窗口绝对额度（/api/go/status）。
-/// 独立的 OAuth 方法：缺少 OAuth 不影响 API key 窗口，两者不互相依赖。
+/// opencode.allowance.oauth：opencode Go 私有端点 + 全局 OAuth 会话 → 窗口绝对额度。
+/// 必须由页面显式启用；缺少 OAuth 不影响其他来源。
 /// </summary>
 public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
 {
@@ -15,8 +15,8 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
         SourceKind.AllowanceOrBalance,
         CredentialClass.OAuthSession,
         QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.RollingWindow, CapabilityKind.BalanceOrQuota),
-        SourceStability.OfficialStable,
-        MethodEnablement.Always,
+        SourceStability.PrivateCompat,
+        MethodEnablement.PrivateCompatOnly,
         DefaultPriority: 30,
         MethodSupport.ImplementationVersion);
 
@@ -39,6 +39,10 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
             return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NoReliableUsage,
                 "Base URL 不匹配 opencode 网关（低置信度提示）",
                 evidence: new[] { DetectionEvidence.UrlHint(page.BaseUrl) });
+
+        if (!page.EnabledCompatibilityMethods.Contains(Descriptor.MethodId, StringComparer.Ordinal))
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported,
+                "私有兼容方法未显式启用");
 
         await Task.CompletedTask;
         if (!_auth.IsLoggedIn)
@@ -65,7 +69,15 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
                 source: new SourceIdentity(Provider, "oauth", Descriptor.MethodId, $"{server}/api/go/status"),
                 confidence: 88);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        catch (QueryTransportException ex)
+        {
+            return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
+        }
+        catch (HttpRequestException)
         {
             return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
         }
@@ -92,7 +104,7 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
                 };
                 capabilities.Add(new RollingWindowValue(
                     CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
-                    Confidence: 1.0, IsPrivate: false, IsEstimated: false,
+                    Confidence: 1.0, IsPrivate: true, IsEstimated: false,
                     WindowKey: $"absolute.{key}", WindowName: m.Kind switch
                     {
                         "five_hour" => "5h 额度",
@@ -101,7 +113,7 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
                         _ => m.Kind,
                     },
                     Status: "正常",
-                    Used: null, Limit: m.LimitMicroCents, Remaining: m.RemainingMicroCents,
+                    Used: m.UsedMicroCents, Limit: m.LimitMicroCents, Remaining: m.RemainingMicroCents,
                     Percent: m.LimitMicroCents is { } l && l > 0 && m.RemainingMicroCents is { } r
                         ? (int)Math.Round(Math.Max(0, Math.Min(100, (double)(l - r) / l * 100))) : (int?)null,
                     ResetsAt: m.ResetsAt, Unit: "microCents"));
@@ -109,7 +121,9 @@ public sealed class OpenCodeAllowanceOAuthMethod : IQueryMethod
         }
         return new MethodQueryResult(capabilities,
             capabilities.Count > 0 ? SnapshotStatus.Success : SnapshotStatus.NoData,
-            capabilities.Count > 0 ? null : new FailureInfo(CandidateStatus.NoReliableUsage, "OAuth 会话无可用额度", DateTimeOffset.UtcNow),
+            capabilities.Count > 0 ? null : new FailureInfo(
+                tokens is null ? CandidateStatus.AuthRequired : CandidateStatus.NoReliableUsage,
+                tokens is null ? "OAuth 会话不可用" : "OAuth 会话无可用额度", DateTimeOffset.UtcNow),
             DateTimeOffset.UtcNow);
     }
 }

@@ -5,8 +5,8 @@ using TokenConsumptionMonitoring.Services.Scanning;
 namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
-/// opencode.rolling-window.api-key：opencode 网关 + 普通 API key → 5h/周/月 滚动窗口。
-/// 与 OAuth 绝对值是独立方法：缺少 OAuth 不影响 API key 窗口。
+/// opencode.rolling-window.api-key：opencode Go 私有网关 + 普通 API key → 5h/周/月滚动窗口。
+/// 与 OAuth 绝对值是独立方法；必须由页面显式启用。
 /// </summary>
 public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
 {
@@ -15,8 +15,8 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
         SourceKind.RollingWindowSnapshot,
         CredentialClass.ApiKey,
         QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.RollingWindow),
-        SourceStability.OfficialStable,
-        MethodEnablement.Always,
+        SourceStability.PrivateCompat,
+        MethodEnablement.PrivateCompatOnly,
         DefaultPriority: 20,
         MethodSupport.ImplementationVersion);
 
@@ -35,6 +35,10 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
                 "Base URL 不匹配 opencode 网关（低置信度提示）",
                 evidence: new[] { DetectionEvidence.UrlHint(page.BaseUrl) });
 
+        if (!page.EnabledCompatibilityMethods.Contains(Descriptor.MethodId, StringComparer.Ordinal))
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported,
+                "私有兼容方法未显式启用");
+
         if (!context.Credentials.HasApiKey)
             return MethodSupport.AuthRequired(Descriptor, "页面未配置 opencode API key",
                 DetectionEvidence.Auth("需要 Bearer API key"));
@@ -51,12 +55,21 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
                 source: new SourceIdentity(Provider, "api-key", Descriptor.MethodId, $"{server}/zen/go/v1/usage"),
                 confidence: 90);
         }
+        catch (QueryTransportException ex)
+        {
+            return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message,
+                evidence: new[] { DetectionEvidence.Http(ex.HttpStatus ?? 0, ex.Message) });
+        }
         catch (InvalidOperationException ex)
         {
-            return MethodSupport.NotAvailable(Descriptor, ClassifyHttp(ex.Message),
+            return MethodSupport.NotAvailable(Descriptor, QueryFailureClassifier.StatusOf(ex),
                 ex.Message, evidence: new[] { DetectionEvidence.Http(0, ex.Message) });
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
+        }
+        catch (HttpRequestException)
         {
             return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, "超时/网络错误");
         }
@@ -66,7 +79,11 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
     {
         var server = OpenCodeUsageClient.DeriveServer(page.BaseUrl);
         var capabilities = new List<CapabilityValue>();
-        var (rolling, weekly, monthly) = await _client.FetchWindowUsageAsync(server, CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var k) ? k! : "", ct);
+        var key = page.CredentialRef.Target is { } target
+            && CredentialStore.TryReadSecret(target, out var secret) ? secret : null;
+        if (string.IsNullOrWhiteSpace(key))
+            return MethodQueryResult.Empty(SnapshotStatus.AuthRequired, "opencode API key 不可用");
+        var (rolling, weekly, monthly) = await _client.FetchWindowUsageAsync(server, key, ct);
         var scope = candidate.CredentialScope ?? new CredentialScope(CredentialClass.ApiKey, Provider);
         var source = candidate.Source ?? new SourceIdentity(Provider, "api-key", Descriptor.MethodId, $"{server}/zen/go/v1/usage");
         capabilities.Add(Window(rolling, "rolling", "5h滚动", scope, source));
@@ -78,18 +95,10 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
     private static RollingWindowValue Window(OpenCodeUsageClient.WindowUsage w, string key, string name,
         CredentialScope scope, SourceIdentity source) => new(
         CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
-        Confidence: 1.0, IsPrivate: false, IsEstimated: false,
+        Confidence: 1.0, IsPrivate: true, IsEstimated: false,
         WindowKey: key, WindowName: name, Status: w.Status,
         Used: null, Limit: null, Remaining: null, Percent: w.Percent,
         ResetsAt: w.ResetsAt, Unit: "percent",
         ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(15));
 
-    /// <summary>把 opencode 错误消息归类为候选状态（脱敏；不解析秘密）。</summary>
-    private static CandidateStatus ClassifyHttp(string message)
-    {
-        if (message.Contains("401")) return CandidateStatus.AuthRequired;
-        if (message.Contains("403")) return CandidateStatus.Forbidden;
-        if (message.Contains("429")) return CandidateStatus.RateLimited;
-        return CandidateStatus.NetworkFailure;
-    }
 }

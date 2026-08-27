@@ -42,8 +42,11 @@ public abstract record CapabilityValue(
     bool IsEstimated,
     DateTimeOffset? ExpiresAt = null)
 {
-    /// <summary>快照是否过期（仅影响展示标记，不触发新告警）。</summary>
-    public bool IsStale(DateTimeOffset now) => ExpiresAt is { } e && now > e;
+    /// <summary>是否由最近成功结果回退而来；过期值不触发新告警。</summary>
+    public bool IsStale { get; init; }
+
+    /// <summary>按过期时间判断是否需要重新查询。</summary>
+    public bool IsExpired(DateTimeOffset now) => IsStale || ExpiresAt is { } e && now > e;
 
     public TimeSpan? Age(DateTimeOffset now) => now - FetchedAt;
 }

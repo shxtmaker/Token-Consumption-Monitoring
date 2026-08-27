@@ -6,7 +6,7 @@ namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
 /// deepseek.console-usage.compat：DeepSeek 控制台私有会话用量（WebView2 会话，按模型 token + 金额）。
-/// 私有兼容来源：只有页面显式为控制台会话（CredentialRef.ConsoleSession 或 DeepSeekConsole 协议）时才启用，
+/// 私有兼容来源：只有页面显式启用方法 ID 时才参与，
 /// 不升级为官方稳定历史 API，也不无条件绑定到 API 余额页面。
 /// </summary>
 public sealed class DeepSeekConsoleUsageMethod : IQueryMethod
@@ -33,10 +33,9 @@ public sealed class DeepSeekConsoleUsageMethod : IQueryMethod
 
     public QueryMethodDescriptor Describe() => Descriptor;
 
-    /// <summary>仅旧配置或显式控制台会话页面启用（页面凭据类别为 ConsoleSession / 协议为 DeepSeekConsole）。</summary>
+    /// <summary>仅页面显式启用方法 ID 时参与。</summary>
     private static bool IsEnabled(PageConfigRecord page) =>
-        page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession ||
-        page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole;
+        page.EnabledCompatibilityMethods.Contains(Descriptor.MethodId, StringComparer.Ordinal);
 
     public async Task<MethodCandidate> ScanAsync(PageConfigRecord page, ScanContext context, CancellationToken ct)
     {
@@ -47,7 +46,7 @@ public sealed class DeepSeekConsoleUsageMethod : IQueryMethod
 
         if (!IsEnabled(page))
             return MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported,
-                "私有兼容方法：仅旧配置或显式控制台会话启用");
+                "私有兼容方法未显式启用");
 
         if (!_session.IsLoggedIn)
             return MethodSupport.AuthRequired(Descriptor, "未登录 DeepSeek 控制台",
@@ -71,17 +70,18 @@ public sealed class DeepSeekConsoleUsageMethod : IQueryMethod
         var todayStart = new DateTimeOffset(now.Date, TimeZoneInfo.Local.GetUtcOffset(now));
         var tzSec = (int)TimeZoneInfo.Local.BaseUtcOffset.TotalSeconds;
         var byModel = await _usage.FetchTodayByModelAsync(
-            todayStart.ToUnixTimeMilliseconds(), now.ToUnixTimeMilliseconds(), tzSec);
+            todayStart.ToUnixTimeMilliseconds(), now.ToUnixTimeMilliseconds(), tzSec, ct);
 
         var scope = candidate.CredentialScope ?? new CredentialScope(CredentialClass.ConsoleSession, Provider);
         var source = candidate.Source ?? new SourceIdentity(Provider, "console-session", Descriptor.MethodId, "https://platform.deepseek.com/usage");
 
-        long total = 0; decimal totalCost = 0;
+        long total = 0; long totalRequests = 0; decimal totalCost = 0;
         var rows = new List<ModelUsageRow>(byModel.Count);
         foreach (var (model, u) in byModel)
         {
             var tokens = u.CacheHitTokens + u.CacheMissTokens + u.ResponseTokens;
             total += tokens;
+            totalRequests += u.RequestCount;
             totalCost += u.CostCny;
             rows.Add(new ModelUsageRow(model, tokens, u.CostCny, "CNY",
                 new TokenBreakdown(u.CacheMissTokens, u.ResponseTokens, u.CacheHitTokens, 0)));
@@ -92,7 +92,7 @@ public sealed class DeepSeekConsoleUsageMethod : IQueryMethod
             new ReportedUsageValue(CapabilityKind.ReportedUsage, source, scope,
                 new Coverage(todayStart, now, Granularity.PerModel), DateTimeOffset.UtcNow,
                 Confidence: 1.0, IsPrivate: true, IsEstimated: false,
-                TotalTokens: total, TotalRequests: 0, Models: rows),
+                TotalTokens: total, TotalRequests: totalRequests, Models: rows),
             new ReportedCostValue(CapabilityKind.ReportedCost, source, scope,
                 new Coverage(todayStart, now, Granularity.PerModel), DateTimeOffset.UtcNow,
                 Confidence: 1.0, IsPrivate: true, IsEstimated: false,

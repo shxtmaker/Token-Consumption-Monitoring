@@ -9,188 +9,260 @@ using Xunit;
 
 namespace TokenConsumptionMonitoring.Tests;
 
-/// <summary>Phase 3：协调器编排（扫描 → 选择 → 查询 / 轮询不重扫 / 按能力回退 / 临时覆盖）。所有方法为桩实现。</summary>
-public class RuntimeCoordinatorTests
+public sealed class RuntimeCoordinatorTests
 {
-    private static readonly QueryMethodDescriptor BalanceMethod = new(
-        "deepseek.balance.api-key", SourceKind.AllowanceOrBalance, CredentialClass.ApiKey,
-        QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.BalanceOrQuota), SourceStability.OfficialStable, MethodEnablement.Always, 40, "1.0.0");
-
-    private static readonly QueryMethodDescriptor LocalMethod = new(
-        "local.zcode.usage", SourceKind.LocalRecord, CredentialClass.LocalRecord,
-        QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.ReportedUsage), SourceStability.LocalFallback, MethodEnablement.Always, 60, "1.0.0");
-
-    private static readonly QueryMethodDescriptor ProbeMethod = new(
-        "endpoint.probe", SourceKind.Probe, CredentialClass.ApiKey,
-        QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.ProbeDiagnostic), SourceStability.ProbeOnly, MethodEnablement.Always, 100, "1.0.0");
-
     private sealed class StubMethod : IQueryMethod
     {
-        private readonly QueryMethodDescriptor _d;
-        private readonly MethodCandidate _scan;
-        private readonly MethodQueryResult _query;
+        private readonly QueryMethodDescriptor _descriptor;
+        private readonly MethodCandidate _candidate;
+        private readonly Func<int, MethodQueryResult> _result;
+
         public int ScanCalls { get; private set; }
         public int QueryCalls { get; private set; }
 
-        public StubMethod(QueryMethodDescriptor d, MethodCandidate scan, MethodQueryResult query)
+        public StubMethod(QueryMethodDescriptor descriptor, Func<int, MethodQueryResult> result)
         {
-            _d = d;
-            _scan = scan;
-            _query = query;
+            _descriptor = descriptor;
+            _candidate = MethodSupport.Available(
+                descriptor,
+                new CredentialScope(descriptor.CredentialClass, "test"),
+                Coverage.Unknown,
+                Array.Empty<DetectionEvidence>(),
+                new SourceIdentity("test", "account", descriptor.MethodId, "https://test.invalid/usage"));
+            _result = result;
         }
 
-        public QueryMethodDescriptor Describe() => _d;
+        public QueryMethodDescriptor Describe() => _descriptor;
+
         public Task<MethodCandidate> ScanAsync(PageConfigRecord page, ScanContext context, CancellationToken ct)
-        { ScanCalls++; return Task.FromResult(_scan); }
+        {
+            ScanCalls++;
+            return Task.FromResult(_candidate);
+        }
+
         public Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
-        { QueryCalls++; return Task.FromResult(_query); }
+        {
+            QueryCalls++;
+            return Task.FromResult(_result(QueryCalls));
+        }
     }
 
-    private static BalanceQuotaValue BalanceValue(string pageId) => new(
-        CapabilityKind.BalanceOrQuota,
-        new SourceIdentity("deepseek", "api-key", BalanceMethod.MethodId, "https://api.deepseek.com/user/balance"),
-        new CredentialScope(CredentialClass.ApiKey, "deepseek"), Coverage.Unknown, DateTimeOffset.UtcNow,
-        Confidence: 1.0, IsPrivate: false, IsEstimated: false, Balance: 9.9m, Used: null, Limit: null, Remaining: null,
-        Currency: "CNY", Unit: null);
+    private static QueryMethodDescriptor Descriptor(
+        string id,
+        CapabilityKind capability,
+        SourceKind source = SourceKind.AllowanceOrBalance,
+        SourceStability stability = SourceStability.OfficialStable,
+        int priority = 10)
+        => new(id, source, CredentialClass.None,
+            QueryMethodDescriptor.CapabilitiesOf(capability), stability, MethodEnablement.Always, priority, "1.0.0");
 
     private static PageConfigRecord Page() => new()
     {
         Id = "page-1",
-        Name = "DeepSeek",
-        BaseUrl = "https://api.deepseek.com",
+        Name = "test",
+        BaseUrl = "https://example.invalid",
         Protocol = "ChatCompletions",
         CredentialRef = CredentialReference.None,
     };
 
-    private static (PageRuntimeCoordinator Coordinator, string TempDir) NewCoordinator(params IQueryMethod[] methods)
+    private static RollingWindowValue Window(string key, int percent, DateTimeOffset? fetchedAt = null) => new(
+        CapabilityKind.RollingWindow,
+        new SourceIdentity("test", "account", "windows", "https://test.invalid/usage"),
+        new CredentialScope(CredentialClass.None, "test"),
+        Coverage.Unknown,
+        fetchedAt ?? DateTimeOffset.UtcNow,
+        1,
+        false,
+        false,
+        key,
+        key,
+        "ok",
+        null,
+        100,
+        100 - percent,
+        percent,
+        DateTimeOffset.UtcNow.AddHours(1),
+        "units");
+
+    private static MethodQueryResult Success(params CapabilityValue[] values)
+        => new(values, SnapshotStatus.Success, null, DateTimeOffset.UtcNow);
+
+    private static MethodQueryResult Failure(CandidateStatus status = CandidateStatus.NetworkFailure)
+        => new(Array.Empty<CapabilityValue>(), QueryFailureClassifier.SnapshotStatusOf(status),
+            new FailureInfo(status, "simulated failure", DateTimeOffset.UtcNow), DateTimeOffset.UtcNow);
+
+    private static (PageRuntimeCoordinator Coordinator, MethodResultCache Cache, MethodStateStore StateStore, string Directory) NewCoordinator(
+        params StubMethod[] methods)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tcm_tests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
+        var directory = Path.Combine(Path.GetTempPath(), "tcm_runtime_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var stateStore = new MethodStateStore(directory);
+        var cache = new MethodResultCache();
+        var descriptors = methods.Select(method => method.Describe());
         var coordinator = new PageRuntimeCoordinator(
             new QueryMethodRegistry(methods),
-            new FingerprintBuilder(methods.Select(m => m.Describe().ImplementationVersion).Append("1.0.0")),
-            new MethodStateStore(tempDir),
-            new MethodResultCache(),
+            new FingerprintBuilder(descriptors),
+            stateStore,
+            cache,
             new ZCodeUsageService());
-        return (coordinator, tempDir);
-    }
-
-    private static MethodCandidate Avail(QueryMethodDescriptor d) =>
-        MethodSupport.Available(d, new CredentialScope(d.CredentialClass), Coverage.Unknown, Array.Empty<DetectionEvidence>());
-
-    [Fact]
-    public async Task ManualRefresh_ScansSelectsAndProducesSnapshot()
-    {
-        var balance = new StubMethod(BalanceMethod, Avail(BalanceMethod),
-            new MethodQueryResult(new CapabilityValue[] { BalanceValue("page-1") }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow));
-        var probe = new StubMethod(ProbeMethod, Avail(ProbeMethod),
-            new MethodQueryResult(Array.Empty<CapabilityValue>(), SnapshotStatus.ProbeOnly,
-                new FailureInfo(CandidateStatus.NoReliableUsage, "probe", DateTimeOffset.UtcNow), DateTimeOffset.UtcNow));
-
-        var (coordinator, tempDir) = NewCoordinator(balance, probe);
-        try
-        {
-            var result = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
-
-            Assert.NotNull(result.Scan);
-            Assert.Equal(BalanceMethod.MethodId, result.Scan!.SelectedMethodId);
-            Assert.Equal(1, balance.ScanCalls);
-            Assert.Equal(1, balance.QueryCalls);
-            Assert.Equal(SnapshotStatus.Success, result.Snapshot.Status);
-            Assert.Single(result.Snapshot.Balances);
-            Assert.Equal(9.9m, result.Snapshot.Balances.Single().Balance);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        return (coordinator, cache, stateStore, directory);
     }
 
     [Fact]
-    public async Task Poll_AfterScan_DoesNotRescan()
+    public async Task OneMethodReturningThreeWindows_PreservesAllItems()
     {
-        var balance = new StubMethod(BalanceMethod, Avail(BalanceMethod),
-            new MethodQueryResult(new CapabilityValue[] { BalanceValue("page-1") }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow));
-
-        var (coordinator, tempDir) = NewCoordinator(balance);
+        var descriptor = Descriptor("windows", CapabilityKind.RollingWindow, SourceKind.RollingWindowSnapshot);
+        var method = new StubMethod(descriptor, _ => Success(
+            Window("five_hour", 30), Window("weekly", 40), Window("monthly", 50)));
+        var runtime = NewCoordinator(method);
         try
         {
-            var first = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
-            Assert.NotNull(first.Scan);
-            Assert.Equal(1, balance.ScanCalls);
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
 
-            var second = await coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
-            Assert.Null(second.Scan);                    // 轮询不重扫候选
-            Assert.Equal(1, balance.ScanCalls);          // 未再扫描
-            Assert.Single(second.Snapshot.Balances);     // 快照来自缓存
+            Assert.Equal(3, result.Snapshot.Windows.Count());
+            Assert.Equal(new[] { "five_hour", "weekly", "monthly" }, result.Snapshot.Windows.Select(w => w.WindowKey));
         }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
     }
 
     [Fact]
-    public async Task CapabilityFallback_FillsMissingCapabilityFromNextSource_NoSum()
+    public async Task SameCapability_UsesSelectedSourceWithoutSummingOrQueryingOtherSource()
     {
-        var balance = new StubMethod(BalanceMethod, Avail(BalanceMethod),
-            new MethodQueryResult(new CapabilityValue[] { BalanceValue("page-1") }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow));
-        var local = new StubMethod(LocalMethod, Avail(LocalMethod),
-            new MethodQueryResult(new CapabilityValue[]
-            {
-                new ReportedUsageValue(CapabilityKind.ReportedUsage,
-                    new SourceIdentity("zcode", "local", LocalMethod.MethodId, "~/.zcode/cli/db/db.sqlite"),
-                    new CredentialScope(CredentialClass.LocalRecord, "zcode"), new Coverage(DateTime.Today, DateTime.Today.AddDays(1), Granularity.PerDay),
-                    DateTimeOffset.UtcNow, Confidence: 0.9, IsPrivate: true, IsEstimated: false,
-                    TotalTokens: 5000, TotalRequests: 0, Models: new[] { new ModelUsageRow("deepseek-v4", 5000) }),
-            }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow));
-
-        var (coordinator, tempDir) = NewCoordinator(balance, local);
+        var officialDescriptor = Descriptor("official", CapabilityKind.BalanceOrQuota, priority: 10);
+        var localDescriptor = Descriptor("local", CapabilityKind.BalanceOrQuota,
+            SourceKind.LocalRecord, SourceStability.LocalFallback, 20);
+        var official = new StubMethod(officialDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota,
+            new SourceIdentity("official", "account", "official", "https://official.invalid"),
+            new CredentialScope(CredentialClass.None, "official"), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 9m, null, null, null, "USD", "credits")));
+        var local = new StubMethod(localDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota,
+            new SourceIdentity("local", "account", "local", "https://local.invalid"),
+            new CredentialScope(CredentialClass.None, "local"), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 3m, null, null, null, "USD", "credits")));
+        var runtime = NewCoordinator(official, local);
         try
         {
-            var result = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
 
-            // 主方法（余额）不提供 ReportedUsage → 本地记录回退补齐；同一能力不合并
+            var balance = Assert.Single(result.Snapshot.Balances);
+            Assert.Equal(9m, balance.Balance);
+            Assert.Equal(1, official.QueryCalls);
+            Assert.Equal(0, local.QueryCalls);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task FailedSelectedSource_UsesCapabilityFallbackWithoutSumming()
+    {
+        var primaryDescriptor = Descriptor("primary", CapabilityKind.BalanceOrQuota, priority: 10);
+        var fallbackDescriptor = Descriptor("fallback", CapabilityKind.BalanceOrQuota,
+            SourceKind.LocalRecord, SourceStability.LocalFallback, 20);
+        var primary = new StubMethod(primaryDescriptor, _ => Failure());
+        var fallback = new StubMethod(fallbackDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota, new SourceIdentity("fallback", "a", "fallback", "https://a.invalid"),
+            new CredentialScope(CredentialClass.LocalRecord), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 3m, null, null, 3m, "USD", "credits")));
+        var runtime = NewCoordinator(primary, fallback);
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+
+            var balance = Assert.Single(result.Snapshot.Balances);
+            Assert.Equal(3m, balance.Balance);
+            Assert.Equal(SnapshotStatus.SuccessPartial, result.Snapshot.Status);
+            Assert.Equal("fallback", result.Snapshot.Metadata.SelectedMethodId);
+            Assert.NotNull(result.Failure);
+            Assert.Equal(RetryPolicy.MaxTransientRetries + 1, primary.QueryCalls);
+            Assert.Equal(1, fallback.QueryCalls);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task DifferentCapabilities_SelectDifferentSources()
+    {
+        var balanceDescriptor = Descriptor("balance", CapabilityKind.BalanceOrQuota);
+        var usageDescriptor = Descriptor("usage", CapabilityKind.ReportedUsage, SourceKind.RemoteOfficialStats, priority: 20);
+        var balance = new StubMethod(balanceDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota, new SourceIdentity("balance", "a", "balance", "https://a.invalid"),
+            new CredentialScope(CredentialClass.None), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 0m, null, null, null, "USD", null)));
+        var usage = new StubMethod(usageDescriptor, _ => Success(new ReportedUsageValue(
+            CapabilityKind.ReportedUsage, new SourceIdentity("usage", "a", "usage", "https://a.invalid"),
+            new CredentialScope(CredentialClass.None), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 0, 0, Array.Empty<ModelUsageRow>())));
+        var runtime = NewCoordinator(balance, usage);
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+
+            Assert.Equal(2, result.Snapshot.Metadata.EffectiveSelectedMethodIds.Count);
             Assert.Single(result.Snapshot.Balances);
             Assert.Single(result.Snapshot.ReportedUsages);
-            Assert.Equal(5000, result.Snapshot.ReportedUsages.Single().TotalTokens);
-            Assert.True(local.QueryCalls >= 1);   // 回退来源确实被查询过
+            Assert.Equal(SnapshotStatus.Success, result.Snapshot.Status);
         }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
     }
 
     [Fact]
-    public async Task TemporaryOverride_AppliesThenResetsOnClear()
+    public async Task FailedAttempt_PreservesLastSuccessAsStale()
     {
-        var balance = new StubMethod(BalanceMethod, Avail(BalanceMethod),
-            new MethodQueryResult(new CapabilityValue[] { BalanceValue("page-1") }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow));
-        var probe = new StubMethod(ProbeMethod, Avail(ProbeMethod),
-            new MethodQueryResult(new CapabilityValue[]
-            {
-                new ProbeDiagnosticValue(CapabilityKind.ProbeDiagnostic,
-                    new SourceIdentity("probe", "endpoint", ProbeMethod.MethodId, "https://api.deepseek.com/models"),
-                    new CredentialScope(CredentialClass.None), Coverage.Unknown, DateTimeOffset.UtcNow,
-                    Confidence: 0.9, IsPrivate: false, IsEstimated: false, Connected: true, Authenticated: true,
-                    Models: Array.Empty<string>(), Diagnostic: null),
-            }, SnapshotStatus.ProbeOnly, null, DateTimeOffset.UtcNow));
-
-        var (coordinator, tempDir) = NewCoordinator(balance, probe);
+        var descriptor = Descriptor("flaky", CapabilityKind.RollingWindow, SourceKind.RollingWindowSnapshot);
+        var method = new StubMethod(descriptor, call => call == 1
+            ? Success(Window("five_hour", 42, DateTimeOffset.UtcNow.AddMinutes(-2)))
+            : Failure());
+        var runtime = NewCoordinator(method);
         try
         {
-            coordinator.SetTemporaryOverride("page-1", ProbeMethod.MethodId);
-            var overridden = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
-            Assert.Equal(ProbeMethod.MethodId, overridden.Snapshot.Metadata.SelectedMethodId);
+            var first = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var key = MethodResultCache.MethodKey("page-1", first.Scan!.Fingerprint, descriptor.MethodId, descriptor.ImplementationVersion);
+            var old = first.Snapshot with
+            {
+                Metadata = first.Snapshot.Metadata with { FetchedAt = DateTimeOffset.UtcNow.AddMinutes(-2) },
+            };
+            runtime.Cache.Put(key, old);
 
-            coordinator.SetTemporaryOverride("page-1", null);
-            var reset = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
-            Assert.Equal(BalanceMethod.MethodId, reset.Snapshot.Metadata.SelectedMethodId);
+            var second = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
+
+            Assert.Equal(SnapshotStatus.Stale, second.Snapshot.Status);
+            Assert.True(second.Snapshot.Windows.Single().IsStale);
+            Assert.Equal(first.Snapshot.Windows.Single().FetchedAt, second.Snapshot.Windows.Single().FetchedAt);
+            Assert.NotNull(second.Failure);
+            Assert.True(method.QueryCalls >= 2);
         }
-        finally
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task TemporaryOverride_IsInMemoryAndClearedByRescan()
+    {
+        var primaryDescriptor = Descriptor("primary", CapabilityKind.BalanceOrQuota, priority: 10);
+        var alternateDescriptor = Descriptor("alternate", CapabilityKind.BalanceOrQuota, priority: 20);
+        var primary = new StubMethod(primaryDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota, new SourceIdentity("primary", "a", "primary", "https://a.invalid"),
+            new CredentialScope(CredentialClass.None), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 1m, null, null, null, "USD", null)));
+        var alternate = new StubMethod(alternateDescriptor, _ => Success(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota, new SourceIdentity("alternate", "a", "alternate", "https://a.invalid"),
+            new CredentialScope(CredentialClass.None), Coverage.Unknown, DateTimeOffset.UtcNow,
+            1, false, false, 2m, null, null, null, "USD", null)));
+        var runtime = NewCoordinator(primary, alternate);
+        try
         {
-            Directory.Delete(tempDir, recursive: true);
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            runtime.Coordinator.SetTemporaryOverride("page-1", alternateDescriptor.MethodId);
+            var overridden = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
+            var serializedState = File.ReadAllText(Path.Combine(runtime.Directory, "runtime", "page-1.json"));
+
+            Assert.Equal(alternateDescriptor.MethodId, overridden.Snapshot.Metadata.SelectedMethodId);
+            Assert.DoesNotContain("TemporaryOverride", serializedState, StringComparison.OrdinalIgnoreCase);
+
+            var scan = await runtime.Coordinator.RescanAsync(Page(), ScanReason.Manual, CancellationToken.None);
+            Assert.Equal(primaryDescriptor.MethodId, scan.SelectedMethodId);
         }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
     }
 }

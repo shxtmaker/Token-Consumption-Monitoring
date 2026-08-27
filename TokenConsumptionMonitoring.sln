@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenUsageMonitorV3", "TokenUsageMonitorV3.csproj", "{A74C950B-AF67-4F8B-9169-0E4146EDB444}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenConsumptionMonitoring", "TokenConsumptionMonitoring.csproj", "{A74C950B-AF67-4F8B-9169-0E4146EDB444}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{761A4C16-AD5E-4A70-A421-2A4709E15500}"
 EndProject

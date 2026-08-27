@@ -9,22 +9,22 @@ public sealed record SelectionResult(
     IReadOnlyList<MethodCandidate> Ordered);
 
 /// <summary>
-/// 候选选择：按来源等级、凭据匹配、统计覆盖、数据新鲜度、置信度和固定优先级排序。
-/// 套餐名称/planId 不参与排序。最高候选并列时不随机选择，标记 RequiresSelection。
+/// 候选选择：按来源稳定性、来源类型、固定优先级和置信度排序。
+/// 计划信息不参与排序。私有兼容来源始终低于本地回退来源；最高候选并列时不随机选择，标记 RequiresSelection。
 /// </summary>
 public static class CandidateSelector
 {
     public static IReadOnlyList<MethodCandidate> Order(IEnumerable<MethodCandidate> candidates)
         => candidates
-            .OrderBy(c => SourceRank(c.Method.SourceKind))
-            .ThenBy(c => StabilityRank(c.Method.Stability))
+            .OrderBy(c => StabilityRank(c.Method.Stability))
+            .ThenBy(c => SourceRank(c.Method.SourceKind))
             .ThenBy(c => c.Method.DefaultPriority)
             .ThenByDescending(c => c.Confidence)
             .ToList();
 
     /// <summary>
     /// 自动选择：只选唯一、可解释的最高候选；最高候选无法区分时进入 RequiresSelection。
-    /// 无可用候选时返回 AuthRequired / NoReliableUsage，按已有关键状态提示。
+    /// 无可用候选时返回最有解释力的失败状态。
     /// </summary>
     public static SelectionResult Select(IReadOnlyList<MethodCandidate> ordered)
     {
@@ -33,9 +33,17 @@ public static class CandidateSelector
         {
             var status = ordered.Any(c => c.Status == CandidateStatus.AuthRequired)
                 ? CandidateStatus.AuthRequired
-                : ordered.Any(c => c.Status == CandidateStatus.NoReliableUsage)
-                    ? CandidateStatus.NoReliableUsage
-                    : CandidateStatus.Unsupported;
+                : ordered.Any(c => c.Status == CandidateStatus.Forbidden)
+                    ? CandidateStatus.Forbidden
+                    : ordered.Any(c => c.Status == CandidateStatus.RateLimited)
+                        ? CandidateStatus.RateLimited
+                        : ordered.Any(c => c.Status == CandidateStatus.NetworkFailure)
+                            ? CandidateStatus.NetworkFailure
+                            : ordered.Any(c => c.Status == CandidateStatus.SchemaMismatch)
+                                ? CandidateStatus.SchemaMismatch
+                                : ordered.Any(c => c.Status == CandidateStatus.NoReliableUsage)
+                                    ? CandidateStatus.NoReliableUsage
+                                    : CandidateStatus.Unsupported;
             return new SelectionResult(null, status, ordered);
         }
 

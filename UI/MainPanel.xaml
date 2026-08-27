@@ -1,7 +1,7 @@
 <Window x:Class="TokenConsumptionMonitoring.UI.MainPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Token Consumption Monitoring 面板" Width="900" MinHeight="640" SizeToContent="Height"
+        Title="TokenConsumptionMonitoring 面板" Width="1080" MinWidth="620" MinHeight="640" SizeToContent="Height"
         WindowStyle="ToolWindow" ResizeMode="CanResize"
         Background="#FF181B20" ShowInTaskbar="False" WindowStartupLocation="CenterScreen">
     <Grid Margin="14">
@@ -56,7 +56,7 @@
                 <TextBlock Text="Base URL" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <TextBox x:Name="PBaseUrlBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
                          FontFamily="Consolas" TextChanged="PBaseUrlBox_TextChanged"/>
-                <TextBlock x:Name="PAdapterHint" FontSize="10" Foreground="#8FAFDB" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                <TextBlock x:Name="PProviderHint" FontSize="10" Foreground="#8FAFDB" Margin="0,2,0,0" TextWrapping="Wrap"/>
 
                 <TextBlock Text="API Key" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <PasswordBox x:Name="PKeyBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
@@ -66,6 +66,10 @@
                 <TextBlock Text="API 格式" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <ComboBox x:Name="PProtocolCombo" Height="26" Margin="0,3,0,0" FontSize="12"
                           SelectionChanged="PProtocolCombo_SelectionChanged"/>
+
+                <CheckBox x:Name="PCompatibilityBox" Content="启用私有兼容查询（高级）"
+                          Foreground="#E0A52B" FontSize="11" Margin="0,8,0,0"
+                          ToolTip="只启用明确勾选的 OpenCode Go、Command Code 或控制台兼容来源"/>
 
                 <TextBlock Text="模型列表（配置提示，不用于监控展示）" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <DockPanel Margin="0,3,0,0">
@@ -99,15 +103,21 @@
         </Border>
 
         <!-- 3: 扫描诊断工作台（三栏：配置/状态 | 候选链 | 能力矩阵） -->
-        <Grid Grid.Row="3" Margin="0,12,0,0">
+        <Grid x:Name="DiagnosticsGrid" Grid.Row="3" Margin="0,12,0,0" MinHeight="360"
+              SizeChanged="DiagnosticsGrid_SizeChanged">
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="DiagnosticsRow0" Height="*"/>
+                <RowDefinition x:Name="DiagnosticsRow1" Height="0"/>
+                <RowDefinition x:Name="DiagnosticsRow2" Height="0"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition x:Name="DiagnosticsColumn0" Width="*"/>
+                <ColumnDefinition x:Name="DiagnosticsColumn1" Width="*"/>
+                <ColumnDefinition x:Name="DiagnosticsColumn2" Width="*"/>
             </Grid.ColumnDefinitions>
 
             <!-- 左栏：页面配置 + 扫描状态 -->
-            <Border Grid.Column="0" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
+            <Border x:Name="ConfigDiagnosticsPanel" Grid.Column="0" Grid.Row="0" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
                 <StackPanel>
                     <TextBlock Text="配置与扫描" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
@@ -126,7 +136,7 @@
             </Border>
 
             <!-- 中栏：候选方法链 -->
-            <Border Grid.Column="1" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
+            <Border x:Name="CandidateDiagnosticsPanel" Grid.Column="1" Grid.Row="0" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
                 <StackPanel>
                     <DockPanel>
@@ -180,7 +190,7 @@
             </Border>
 
             <!-- 右栏：能力矩阵（快照按能力动态渲染） -->
-            <Border Grid.Column="2" CornerRadius="8" Background="#1F2329"
+            <Border x:Name="CapabilityDiagnosticsPanel" Grid.Column="2" Grid.Row="0" CornerRadius="8" Background="#1F2329"
                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
                 <StackPanel>
                     <TextBlock Text="能力矩阵" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
@@ -232,6 +242,18 @@
                                         <TextBlock Grid.Column="2" Text="{Binding CostLabel}" Foreground="#7FC9A0"
                                                    FontSize="11" Margin="10,0,0,0"/>
                                     </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- 供应商报告的实际成本；估算成本不进入此视图 -->
+                    <StackPanel Visibility="{Binding Snapshot.HasReportedCosts, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
+                        <TextBlock Text="报告成本" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{Binding Snapshot.ReportedCostRows}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" Foreground="#7FC9A0" FontSize="11" Margin="0,2,0,0"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

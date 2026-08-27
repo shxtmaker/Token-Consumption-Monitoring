@@ -31,13 +31,33 @@ public sealed class ScanDiagnosticsViewModel : INotifyPropertyChanged
         Notify(nameof(IsScanning));
     }
 
+    /// <summary>没有活动页面时清除上一页的诊断投影。</summary>
+    public void Clear()
+    {
+        Fingerprint = "";
+        ScannedAtLabel = "尚未扫描";
+        SelectionLabel = "尚未选择方法";
+        RequiresSelection = false;
+        IsScanning = false;
+        ConfigText = "";
+        Candidates.Clear();
+        Notify(nameof(Fingerprint), nameof(ScannedAtLabel), nameof(SelectionLabel), nameof(RequiresSelection),
+            nameof(IsScanning), nameof(HasCandidates), nameof(CandidateCountLabel), nameof(ConfigText));
+    }
+
     /// <summary>扫描完成后更新：候选链 + 选择状态 + 指纹。effectiveMethodId 为当前选中（含临时覆盖）。</summary>
     public void Update(PageConfigRecord page, ScanReport? report, string? effectiveMethodId)
     {
         BuildConfigText(page);
         if (report is null)
         {
-            Notify(nameof(ConfigText));
+            Fingerprint = "";
+            ScannedAtLabel = "尚未扫描";
+            SelectionLabel = "尚未选择方法";
+            RequiresSelection = false;
+            Candidates.Clear();
+            Notify(nameof(Fingerprint), nameof(ScannedAtLabel), nameof(SelectionLabel), nameof(RequiresSelection),
+                nameof(HasCandidates), nameof(CandidateCountLabel), nameof(ConfigText));
             return;
         }
 
@@ -45,9 +65,9 @@ public sealed class ScanDiagnosticsViewModel : INotifyPropertyChanged
         ScannedAtLabel = $"最近扫描 {report.ScannedAt.ToLocalTime():HH:mm:ss}";
         RequiresSelection = report.RequiresSelection;
         SelectionLabel = report.RequiresSelection
-            ? "候选并列 — 需要选择（可临时覆盖）"
-            : report.SelectedMethodId is { } id
-                ? $"已选方法：{id}"
+            ? "能力来源存在并列 — 需要选择（可临时覆盖）"
+            : report.SelectedMethodIds.Count > 0
+                ? $"已选来源：{string.Join("；", report.SelectedMethodIds.Select(pair => $"{pair.Key}={pair.Value}"))}"
                 : report.SelectionStatus switch
                 {
                     CandidateStatus.AuthRequired => "需要凭据/权限",
@@ -57,7 +77,8 @@ public sealed class ScanDiagnosticsViewModel : INotifyPropertyChanged
 
         // 重建候选链
         Candidates.Clear();
-        var effective = effectiveMethodId ?? report.SelectedMethodId ?? "";
+        var effective = report.SelectedMethodIds.Values.ToHashSet(StringComparer.Ordinal);
+        if (effectiveMethodId is not null) effective.Add(effectiveMethodId);
         foreach (var c in report.Candidates)
             Candidates.Add(new MethodCandidateViewModel(c, effective));
 

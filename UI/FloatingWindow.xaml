@@ -1,7 +1,7 @@
 <Window x:Class="TokenConsumptionMonitoring.UI.FloatingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Token Consumption Monitoring" WindowStyle="None" AllowsTransparency="True"
+        Title="TokenConsumptionMonitoring" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ShowInTaskbar="False"
         ResizeMode="NoResize" Width="318" SizeToContent="Height"
         MouseLeftButtonDown="Root_MouseLeftButtonDown">

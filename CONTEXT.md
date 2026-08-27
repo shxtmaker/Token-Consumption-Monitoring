@@ -1,4 +1,4 @@
-# Token Usage Monitor
+# TokenConsumptionMonitoring
 
 桌面额度监控小工具：常驻展示各 API 供应商的 token/额度用量，并提供页面化的配置与告警。
 

@@ -8,14 +8,14 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>TokenConsumptionMonitoring</RootNamespace>
-    <AssemblyName>TokenUsageMonitorV3</AssemblyName>
+    <AssemblyName>TokenConsumptionMonitoring</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- 测试目录不属于 WPF 应用编译项（测试工程独立引用应用工程） -->
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>

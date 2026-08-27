@@ -49,25 +49,42 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
 
     public async Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
     {
-        var (balance, currency) = await FetchBalanceAsync(page, ct);
-        if (balance is null)
-            return MethodQueryResult.Empty(SnapshotStatus.TemporaryFailure, "余额接口无数据");
+        try
+        {
+            var (balance, currency) = await FetchBalanceAsync(page, ct);
+            if (balance is null)
+                return MethodQueryResult.Empty(SnapshotStatus.SchemaMismatch, "余额接口未返回 total_balance");
 
-        var scope = candidate.CredentialScope ?? new CredentialScope(CredentialClass.ApiKey, Provider);
-        var source = candidate.Source ?? new SourceIdentity(Provider, "api-key", Descriptor.MethodId, $"{page.BaseUrl.TrimEnd('/')}/user/balance");
-        var value = new BalanceQuotaValue(
-            CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
-            Confidence: 1.0, IsPrivate: false, IsEstimated: false,
-            Balance: balance, Used: null, Limit: null, Remaining: null,
-            Currency: currency, Unit: null, ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(15));
-        return new MethodQueryResult(new CapabilityValue[] { value }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow);
+            var scope = candidate.CredentialScope ?? new CredentialScope(CredentialClass.ApiKey, Provider);
+            var source = candidate.Source ?? new SourceIdentity(Provider, "api-key", Descriptor.MethodId, $"{page.BaseUrl.TrimEnd('/')}/user/balance");
+            var value = new BalanceQuotaValue(
+                CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
+                Confidence: 1.0, IsPrivate: false, IsEstimated: false,
+                Balance: balance, Used: null, Limit: null, Remaining: null,
+                Currency: currency, Unit: null, ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(15));
+            return new MethodQueryResult(new CapabilityValue[] { value }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow);
+        }
+        catch (QueryTransportException ex)
+        {
+            return MethodQueryResult.Empty(QueryFailureClassifier.SnapshotStatusOf(ex.Status), ex.Message)
+                with { Failure = new FailureInfo(ex.Status, ex.Message, DateTimeOffset.UtcNow) };
+        }
     }
 
     private async Task<(CandidateStatus Status, string Reason, decimal? Balance)> ProbeBalanceAsync(PageConfigRecord page, CancellationToken ct)
     {
-        var (balance, currency) = await FetchBalanceAsync(page, ct);
-        _ = currency;
-        return balance is null ? (CandidateStatus.NoReliableUsage, "余额接口未返回数据", null) : (CandidateStatus.Available, "", balance);
+        try
+        {
+            var (balance, currency) = await FetchBalanceAsync(page, ct);
+            _ = currency;
+            return balance is null
+                ? (CandidateStatus.SchemaMismatch, "余额接口未返回 total_balance", null)
+                : (CandidateStatus.Available, "", balance);
+        }
+        catch (QueryTransportException ex)
+        {
+            return (ex.Status, ex.Message, null);
+        }
     }
 
     private async Task<(decimal? Balance, string Currency)> FetchBalanceAsync(PageConfigRecord page, CancellationToken ct)
@@ -75,15 +92,26 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{page.BaseUrl.TrimEnd('/')}/user/balance");
-            var key = CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var k) ? k : null;
+            var key = page.CredentialRef.Target is { } target
+                && CredentialStore.TryReadSecret(target, out var k) ? k : null;
             if (!string.IsNullOrEmpty(key))
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
             using var response = await _http.SendAsync(request, ct);
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) return (null, "");
-            if (!response.IsSuccessStatusCode) return (null, "");
+            if (!response.IsSuccessStatusCode)
+            {
+                var status = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Unauthorized => CandidateStatus.AuthRequired,
+                    System.Net.HttpStatusCode.Forbidden => CandidateStatus.Forbidden,
+                    System.Net.HttpStatusCode.TooManyRequests => CandidateStatus.RateLimited,
+                    _ when (int)response.StatusCode >= 500 => CandidateStatus.NetworkFailure,
+                    _ => CandidateStatus.SchemaMismatch,
+                };
+                throw new QueryTransportException(status, $"DeepSeek balance HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+            }
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
             if (!doc.RootElement.TryGetProperty("balance_infos", out var arr) || arr.ValueKind != JsonValueKind.Array)
-                return (null, "");
+                throw new QueryTransportException(CandidateStatus.SchemaMismatch, "DeepSeek balance 缺少 balance_infos");
             foreach (var b in arr.EnumerateArray())
             {
                 if (!b.TryGetProperty("total_balance", out var tb)) continue;
@@ -97,10 +125,14 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
                 }
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return (null, "");
+            throw new QueryTransportException(CandidateStatus.NetworkFailure, "DeepSeek balance 请求超时");
         }
-        return (null, "");
+        catch (HttpRequestException ex)
+        {
+            throw new QueryTransportException(CandidateStatus.NetworkFailure, "DeepSeek balance 网络错误", inner: ex);
+        }
+        throw new QueryTransportException(CandidateStatus.SchemaMismatch, "DeepSeek balance 未解析到余额");
     }
 }

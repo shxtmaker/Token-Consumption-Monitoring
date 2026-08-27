@@ -34,13 +34,13 @@ public static class KeyFormat
         _ => "",
     };
 
-    /// <summary>凭据管理器 target（按协议分存；兼容标识见 <see cref="Legacy"/>）。</summary>
+    /// <summary>凭据管理器 target（按协议分存）。</summary>
     public static string CredentialTarget(Protocol p) => p switch
     {
-        Protocol.ChatCompletions => $"{Legacy.ApiKeyPrefix}.ChatCompletions",
-        Protocol.Responses => $"{Legacy.ApiKeyPrefix}.Responses",
-        Protocol.Anthropic => $"{Legacy.ApiKeyPrefix}.Anthropic",
-        _ => Legacy.ApiKeyPrefix,
+        Protocol.ChatCompletions => $"{AppIdentity.ApiKeyPrefix}.ChatCompletions",
+        Protocol.Responses => $"{AppIdentity.ApiKeyPrefix}.Responses",
+        Protocol.Anthropic => $"{AppIdentity.ApiKeyPrefix}.Anthropic",
+        _ => AppIdentity.ApiKeyPrefix,
     };
 
     /// <summary>供应商目录：设置页按供应商分开管理 API key。</summary>
@@ -55,7 +55,7 @@ public static class KeyFormat
             new("Custom", "自定义", Protocol.ChatCompletions),
         };
 
-        public string Target => $"{Legacy.ApiKeyPrefix}.{Id}";
+        public string Target => $"{AppIdentity.ApiKeyPrefix}.{Id}";
         public string ProtocolLabel => Describe(Protocol);
     }
 

@@ -6,7 +6,7 @@ namespace TokenConsumptionMonitoring.Services;
 /// <summary>Windows 凭据管理器（opencode OAuth token 存储）。</summary>
 public static class CredentialStore
 {
-    public const string OAuthTarget = Legacy.OAuthTarget;
+    public const string OAuthTarget = AppIdentity.OAuthTarget;
 
     private const int CRED_TYPE_GENERIC = 1;
     private const uint CRED_PERSIST_ENTERPRISE = 2;

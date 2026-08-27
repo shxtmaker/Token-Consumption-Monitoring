@@ -16,7 +16,7 @@ public sealed class DeprecatedPageSettings
 
 /// <summary>
 /// 方法无关的页面配置：保存名称、端点、协议、凭据引用、顺序、显示设置与配置提示。
-/// 不保存 AdapterKind、套餐选择或固定查询方法作为页面身份。
+/// 不保存套餐选择或固定查询方法作为页面身份。
 /// </summary>
 public sealed class PageConfigRecord
 {
@@ -37,6 +37,9 @@ public sealed class PageConfigRecord
     /// <summary>配置提示（模型/端点辅助输入；不参与方法选择与监控展示）。</summary>
     public List<string> ConfiguredModelHints { get; set; } = new();
 
+    /// <summary>显式启用的私有兼容方法 ID；为空表示不启用任何私有来源。</summary>
+    public List<string> EnabledCompatibilityMethods { get; set; } = new();
+
     /// <summary>页面显示顺序。</summary>
     public int SortOrder { get; set; }
 
@@ -44,10 +47,10 @@ public sealed class PageConfigRecord
     public DeprecatedPageSettings? Deprecated { get; set; }
 
     public KeyFormat.Protocol ParseProtocol() =>
-        Enum.TryParse<KeyFormat.Protocol>(Protocol, out var p) ? p : KeyFormat.Protocol.ChatCompletions;
+        Enum.TryParse<KeyFormat.Protocol>(Protocol, ignoreCase: true, out var p) ? p : KeyFormat.Protocol.ChatCompletions;
 
-    /// <summary>兼容桥接：映射回旧 Page 模型（迁移/编辑表单使用）。</summary>
-    public Page ToLegacy()
+    /// <summary>编辑表单使用的阈值桥接模型。</summary>
+    public Page ToEditablePage()
     {
         var p = new Page { Id = Id, Name = Name, BaseUrl = BaseUrl, SortOrder = SortOrder };
         p.Protocol = ParseProtocol();
@@ -74,6 +77,10 @@ public sealed class PageConfigDocument
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public List<PageConfigRecord> Pages { get; set; } = new();
 
+    /// <summary>是否由旧根数组迁移而来，需要写回当前 envelope。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool RequiresSchemaRewrite { get; set; }
+
     /// <summary>加载失败时的脱敏诊断（未知 schema/损坏 JSON）；不覆盖原文件。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? Diagnostic { get; set; }
@@ -94,7 +101,7 @@ public static class PageConfigMigrator
             Name = legacy.Name,
             BaseUrl = legacy.BaseUrl,
             Protocol = legacy.Protocol.ToString(),
-            ConfiguredModelHints = new List<string>(legacy.Models),
+            ConfiguredModelHints = new List<string>(legacy.Models ?? new List<string>()),
             SortOrder = legacy.SortOrder,
             Deprecated = new DeprecatedPageSettings
             {
@@ -104,11 +111,11 @@ public static class PageConfigMigrator
                 TokenCritical = legacy.TokenCritical,
             },
             CredentialRef = legacy.NeedsKey
-                ? CredentialReference.LegacyPageApiKey(legacy.Id)
+                ? CredentialReference.PageApiKey(legacy.Id)
                 : CredentialReference.None,
         };
     }
 
-    /// <summary>把 legacy 模型映射回 Page（编辑/展示兼容用）。</summary>
-    public static Page ToLegacy(PageConfigRecord record) => record.ToLegacy();
+    /// <summary>把页面记录转换为编辑表单模型。</summary>
+    public static Page ToEditablePage(PageConfigRecord record) => record.ToEditablePage();
 }

@@ -1,13 +1,14 @@
+using System.Net;
+using System.Text.Json;
 using TokenConsumptionMonitoring.Models;
 using TokenConsumptionMonitoring.Models.Usage;
-using TokenConsumptionMonitoring.Services.Adapters;
 using TokenConsumptionMonitoring.Services.Scanning;
 
 namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
-/// endpoint.probe：通用连接/鉴权/模型目录探测。
-/// 只提供 ProbeDiagnostic 能力；/models 成功不能升级为用量方法，模型目录不进入展示列表。
+/// endpoint.probe：通用连接、鉴权和模型目录探测。
+/// /models 成功只能形成 ProbeDiagnostic，不能升级为用量能力。
 /// </summary>
 public sealed class EndpointProbeMethod : IQueryMethod
 {
@@ -22,14 +23,10 @@ public sealed class EndpointProbeMethod : IQueryMethod
         MethodSupport.ImplementationVersion);
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(12) };
-    private readonly OpenCodeAuthService? _openCodeAuth;
     private readonly DeepSeekSessionService? _deepSeekSession;
 
     public EndpointProbeMethod(OpenCodeAuthService? openCodeAuth = null, DeepSeekSessionService? deepSeekSession = null)
-    {
-        _openCodeAuth = openCodeAuth;
-        _deepSeekSession = deepSeekSession;
-    }
+        => _deepSeekSession = deepSeekSession;
 
     public QueryMethodDescriptor Describe() => Descriptor;
 
@@ -51,78 +48,112 @@ public sealed class EndpointProbeMethod : IQueryMethod
         if (!context.Credentials.HasApiKey)
             return MethodSupport.AuthRequired(Descriptor, "页面未配置 API key", evidence.ToArray());
 
-        var (ok, error) = await ProbeModelsAsync(page, context.Credentials.ReadApiKey()!, ct);
-        evidence.Add(DetectionEvidence.Field("/models"));
-        if (!ok)
-            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.NetworkFailure, error, 0, evidence.ToArray());
+        var result = await ProbeWithModelsAsync(page, context.Credentials.ReadApiKey(), ct);
+        if (!result.Ok)
+            return MethodSupport.NotAvailable(Descriptor, result.Status, result.Error, 0, evidence.ToArray());
 
+        evidence.Add(DetectionEvidence.Field("/models"));
         return MethodSupport.Available(Descriptor, context.Credentials.Scope, Coverage.Unknown, evidence,
             source: new SourceIdentity("probe", "endpoint", Descriptor.MethodId, page.BaseUrl), confidence: 60);
     }
 
     public async Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
     {
-        var (ok, error, authenticated, models) = await ProbeWithModelsAsync(page, ct);
-        var value = new ProbeDiagnosticValue(
+        if (page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole)
+        {
+            var loggedIn = _deepSeekSession is { IsLoggedIn: true };
+            var consoleValue = ProbeValue(candidate, page, loggedIn, loggedIn, Array.Empty<string>(),
+                loggedIn ? null : "控制台会话未登录");
+            return new MethodQueryResult(
+                new CapabilityValue[] { consoleValue },
+                loggedIn ? SnapshotStatus.ProbeOnly : SnapshotStatus.AuthRequired,
+                loggedIn ? null : new FailureInfo(CandidateStatus.AuthRequired, "控制台会话未登录", DateTimeOffset.UtcNow),
+                consoleValue.FetchedAt);
+        }
+
+        var result = await ProbeWithModelsAsync(page, ReadPageKey(page), ct);
+        var value = ProbeValue(candidate, page, result.Ok, result.Authenticated, result.Models,
+            result.Ok ? null : result.Error);
+        return new MethodQueryResult(
+            new CapabilityValue[] { value },
+            result.Ok ? SnapshotStatus.ProbeOnly : QueryFailureClassifier.SnapshotStatusOf(result.Status),
+            result.Ok ? null : new FailureInfo(result.Status, result.Error, DateTimeOffset.UtcNow),
+            value.FetchedAt);
+    }
+
+    private async Task<ProbeResult> ProbeWithModelsAsync(PageConfigRecord page, string? key, CancellationToken ct)
+    {
+        var models = new List<string>();
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            var (url, anthropicVersion) = BuildRequest(page, "/models");
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            ApplyAuth(request, page, key, anthropicVersion);
+            using var response = await _http.SendAsync(request, timeout.Token);
+            var body = await response.Content.ReadAsStringAsync(timeout.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var status = response.StatusCode switch
+                {
+                    HttpStatusCode.Unauthorized => CandidateStatus.AuthRequired,
+                    HttpStatusCode.Forbidden => CandidateStatus.Forbidden,
+                    HttpStatusCode.TooManyRequests => CandidateStatus.RateLimited,
+                    _ when (int)response.StatusCode >= 500 => CandidateStatus.NetworkFailure,
+                    _ => CandidateStatus.SchemaMismatch,
+                };
+                return new ProbeResult(false, status, $"HTTP {(int)response.StatusCode}", false, models);
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Array)
+                return new ProbeResult(false, CandidateStatus.SchemaMismatch, "响应缺少 data 数组", true, models);
+            foreach (var model in data.EnumerateArray())
+                if (model.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                    models.Add(id.GetString()!);
+            return new ProbeResult(true, CandidateStatus.Available, "", true, models);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new ProbeResult(false, CandidateStatus.NetworkFailure, "请求超时", false, models);
+        }
+        catch (HttpRequestException)
+        {
+            return new ProbeResult(false, CandidateStatus.NetworkFailure, "网络错误", false, models);
+        }
+        catch (JsonException)
+        {
+            return new ProbeResult(false, CandidateStatus.SchemaMismatch, "响应不是有效 JSON", false, models);
+        }
+    }
+
+    private static ProbeDiagnosticValue ProbeValue(
+        MethodCandidate candidate,
+        PageConfigRecord page,
+        bool connected,
+        bool authenticated,
+        IReadOnlyList<string> models,
+        string? diagnostic)
+        => new(
             CapabilityKind.ProbeDiagnostic,
             candidate.Source ?? new SourceIdentity("probe", "endpoint", Descriptor.MethodId, page.BaseUrl),
             candidate.CredentialScope ?? new CredentialScope(CredentialClass.None),
             Coverage.Unknown,
             DateTimeOffset.UtcNow,
-            Confidence: ok ? 0.9 : 0.2,
+            Confidence: connected ? 0.9 : 0.2,
             IsPrivate: false,
             IsEstimated: false,
-            Connected: ok,
+            Connected: connected,
             Authenticated: authenticated,
             Models: models,
-            Diagnostic: ok ? null : error);
+            Diagnostic: diagnostic);
 
-        var status = ok ? SnapshotStatus.ProbeOnly : SnapshotStatus.PermanentFailure;
-        return new MethodQueryResult(new CapabilityValue[] { value }, status,
-            ok ? null : new FailureInfo(CandidateStatus.NetworkFailure, error, DateTimeOffset.UtcNow),
-            DateTimeOffset.UtcNow);
-    }
-
-    private async Task<(bool Ok, string Error)> ProbeModelsAsync(PageConfigRecord page, string key, CancellationToken ct)
-    {
-        var (ok, error, _, _) = await ProbeWithModelsAsync(page, ct);
-        return (ok, error);
-    }
-
-    private async Task<(bool Ok, string Error, bool Authenticated, IReadOnlyList<string> Models)> ProbeWithModelsAsync(PageConfigRecord page, CancellationToken ct)
-    {
-        var models = new List<string>();
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(10));
-            var (url, anthropicVersion) = BuildRequest(page, "/models");
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            var key = CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var k) ? k : null;
-            ApplyAuth(request, page, key, anthropicVersion);
-            using var response = await _http.SendAsync(request, cts.Token);
-
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) return (false, "401 密钥无效", false, models);
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden) return (false, "403 无权限", false, models);
-            if (!response.IsSuccessStatusCode) return (false, $"HTTP {(int)response.StatusCode}", false, models);
-
-            var body = await response.Content.ReadAsStringAsync(ct);
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                foreach (var m in data.EnumerateArray())
-                {
-                    if (m.TryGetProperty("id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.String)
-                        models.Add(id.GetString()!);
-                }
-            }
-            return (true, "", true, models);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-        {
-            return (false, "超时/网络错误", false, models);
-        }
-    }
+    private static string? ReadPageKey(PageConfigRecord page)
+        => page.CredentialRef.Target is { } target
+           && CredentialStore.TryReadSecret(target, out var key)
+           && !string.IsNullOrWhiteSpace(key) ? key : null;
 
     private static (string Url, string? AnthropicVersion) BuildRequest(PageConfigRecord page, string path)
     {
@@ -134,8 +165,7 @@ public sealed class EndpointProbeMethod : IQueryMethod
 
     private static void ApplyAuth(HttpRequestMessage request, PageConfigRecord page, string? key, string? anthropicVersion)
     {
-        var protocol = page.ParseProtocol();
-        if (protocol == KeyFormat.Protocol.Anthropic)
+        if (page.ParseProtocol() == KeyFormat.Protocol.Anthropic)
         {
             if (!string.IsNullOrEmpty(key)) request.Headers.Add("x-api-key", key);
             if (!string.IsNullOrEmpty(anthropicVersion)) request.Headers.Add("anthropic-version", anthropicVersion);
@@ -145,4 +175,11 @@ public sealed class EndpointProbeMethod : IQueryMethod
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
         }
     }
+
+    private sealed record ProbeResult(
+        bool Ok,
+        CandidateStatus Status,
+        string Error,
+        bool Authenticated,
+        IReadOnlyList<string> Models);
 }

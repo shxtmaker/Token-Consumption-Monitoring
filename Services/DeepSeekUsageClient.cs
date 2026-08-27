@@ -1,4 +1,6 @@
 using System.Text.Json;
+using TokenConsumptionMonitoring.Models.Usage;
+using TokenConsumptionMonitoring.Services.QueryMethods;
 
 namespace TokenConsumptionMonitoring.Services;
 
@@ -17,7 +19,8 @@ public sealed class DeepSeekUsageClient
         long CacheHitTokens, long CacheMissTokens, long ResponseTokens, long RequestCount, decimal CostCny);
 
     /// <summary>拉取 [startMs, endMs]（unix 毫秒）范围内按模型的用量与金额。tz 为本地时区整小时秒偏移。</summary>
-    public async Task<Dictionary<string, UsageResult>> FetchTodayByModelAsync(long startMs, long endMs, int tzSec)
+    public async Task<Dictionary<string, UsageResult>> FetchTodayByModelAsync(
+        long startMs, long endMs, int tzSec, CancellationToken ct = default)
     {
         var result = new Dictionary<string, UsageResult>(StringComparer.OrdinalIgnoreCase);
         var startSec = startMs / 1000;
@@ -25,9 +28,9 @@ public sealed class DeepSeekUsageClient
 
         // 优先页面自身请求捕获（风控上下文完整）；失败回退注入 fetch
         string? amountBody = null;
-        var (okPage, bodyPage) = await _session.FetchUsageViaPageAsync(
+        var (okPage, bodyPage, pageStatus) = await _session.FetchUsageViaPageAsync(
             "https://platform.deepseek.com/usage",
-            "/api/v0/usage/by_api_key/amount");
+            "/api/v0/usage/by_api_key/amount", ct);
         if (okPage)
         {
             Logger.Log($"deepseek amount via page: {(bodyPage.Length > 400 ? bodyPage[..400] : bodyPage)}");
@@ -35,14 +38,22 @@ public sealed class DeepSeekUsageClient
         }
         else
         {
-            var (okA, bodyA, invalidA) = await _session.FetchAsync(
-                $"/api/v0/usage/by_api_key/amount?start={startSec}&end={endSec}&tz={tzSec}");
-            if (invalidA) throw new InvalidOperationException("DeepSeek 会话失效");
-            if (okA && bodyA != "{}") amountBody = bodyA;
+            ThrowIfFailed(pageStatus, false, "amount 页面请求");
+            var (okA, bodyA, invalidA, statusA) = await _session.FetchAsync(
+                $"/api/v0/usage/by_api_key/amount?start={startSec}&end={endSec}&tz={tzSec}", ct);
+            ThrowIfFailed(statusA, invalidA, "amount 请求");
+            if (okA && !string.IsNullOrWhiteSpace(bodyA) && bodyA != "{}") amountBody = bodyA;
+            if (amountBody is null)
+            {
+                var status = okA ? CandidateStatus.SchemaMismatch : CandidateStatus.NetworkFailure;
+                throw new QueryTransportException(status,
+                    okA ? "DeepSeek amount 响应为空或 schema 不匹配" : "DeepSeek amount 请求超时或未收到响应",
+                    statusA);
+            }
         }
         if (amountBody is null) return result;
 
-        var costs = await FetchCostAsync(startSec, endSec, tzSec);
+        var costs = await FetchCostAsync(startSec, endSec, tzSec, ct);
 
         using var doc = JsonDocument.Parse(amountBody);
         var root = doc.RootElement;
@@ -72,15 +83,16 @@ public sealed class DeepSeekUsageClient
         return result;
     }
 
-    private async Task<Dictionary<string, decimal>> FetchCostAsync(long startSec, long endSec, int tzSec)
+    private async Task<Dictionary<string, decimal>> FetchCostAsync(
+        long startSec, long endSec, int tzSec, CancellationToken ct)
     {
         var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         // 页面捕获优先（注入 fetch 被风控返回空）
         string? costBody = null;
-        var (okPage, bodyPage) = await _session.FetchUsageViaPageAsync(
+        var (okPage, bodyPage, pageStatus) = await _session.FetchUsageViaPageAsync(
             "https://platform.deepseek.com/usage",
-            "/api/v0/usage/by_api_key/cost");
+            "/api/v0/usage/by_api_key/cost", ct);
         if (okPage)
         {
             Logger.Log($"deepseek cost via page: {(bodyPage.Length > 400 ? bodyPage[..400] : bodyPage)}");
@@ -88,8 +100,10 @@ public sealed class DeepSeekUsageClient
         }
         else
         {
-            var (ok, body, _) = await _session.FetchAsync(
-                $"/api/v0/usage/by_api_key/cost?start={startSec}&end={endSec}&tz={tzSec}");
+            ThrowIfFailed(pageStatus, false, "cost 页面请求");
+            var (ok, body, invalid, status) = await _session.FetchAsync(
+                $"/api/v0/usage/by_api_key/cost?start={startSec}&end={endSec}&tz={tzSec}", ct);
+            ThrowIfFailed(status, invalid, "cost 请求");
             if (ok && body != "{}") costBody = body;
         }
         if (costBody is null) return result;
@@ -132,5 +146,26 @@ public sealed class DeepSeekUsageClient
         if (v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d)) return d;
         if (v.ValueKind == JsonValueKind.String && decimal.TryParse(v.GetString(), out var d2)) return d2;
         return 0;
+    }
+
+    private static void ThrowIfFailed(int? httpStatus, bool sessionInvalid, string endpoint)
+    {
+        if (httpStatus is { } status && (status < 200 || status >= 300))
+        {
+            var candidateStatus = status switch
+            {
+                401 => CandidateStatus.AuthRequired,
+                403 => CandidateStatus.Forbidden,
+                429 => CandidateStatus.RateLimited,
+                >= 500 => CandidateStatus.NetworkFailure,
+                _ => CandidateStatus.SchemaMismatch,
+            };
+            throw new QueryTransportException(candidateStatus,
+                $"DeepSeek {endpoint} HTTP {status}", status);
+        }
+
+        if (sessionInvalid)
+            throw new QueryTransportException(CandidateStatus.AuthRequired,
+                $"DeepSeek {endpoint} 会话失效", 401);
     }
 }

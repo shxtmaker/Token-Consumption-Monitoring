@@ -59,11 +59,13 @@ public sealed class LocalZCodeUsageMethod : IQueryMethod
         var source = candidate.Source ?? new SourceIdentity(Provider, "local", Descriptor.MethodId, "~/.zcode/cli/db/db.sqlite");
 
         long total = 0;
+        var matchedProvider = false;
         long? requestCount = null;
         var rows = new List<ModelUsageRow>();
         foreach (var pu in byProvider)
         {
             if (!Belongs(pu.Provider, page)) continue;
+            matchedProvider = true;
             foreach (var m in pu.Models)
             {
                 total += m.Tokens;
@@ -71,14 +73,20 @@ public sealed class LocalZCodeUsageMethod : IQueryMethod
             }
         }
 
+        if (!matchedProvider)
+        {
+            return new MethodQueryResult(Array.Empty<CapabilityValue>(), SnapshotStatus.NoData,
+                new FailureInfo(CandidateStatus.NoReliableUsage, "未找到可归属的本地记录", DateTimeOffset.UtcNow),
+                DateTimeOffset.UtcNow);
+        }
+
         var capability = new ReportedUsageValue(
             CapabilityKind.ReportedUsage, source, scope,
             new Coverage(DateTime.Today, DateTime.Today.AddDays(1), Granularity.PerDay), DateTimeOffset.UtcNow,
-            Confidence: 0.9, IsPrivate: true, IsEstimated: false,
+            Confidence: 0.9, IsPrivate: false, IsEstimated: false,
             TotalTokens: total, TotalRequests: requestCount ?? 0, Models: rows,
             ExpiresAt: DateTimeOffset.UtcNow.AddHours(1));
-        var status = total > 0 ? SnapshotStatus.Success : SnapshotStatus.NoData;
-        return new MethodQueryResult(new CapabilityValue[] { capability }, status, null, DateTimeOffset.UtcNow);
+        return new MethodQueryResult(new CapabilityValue[] { capability }, SnapshotStatus.Success, null, DateTimeOffset.UtcNow);
     }
 
     private bool IsAttributable(PageConfigRecord page)

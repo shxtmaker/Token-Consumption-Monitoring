@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TokenConsumptionMonitoring.Models.Usage;
+using TokenConsumptionMonitoring.Services.QueryMethods;
 
 namespace TokenConsumptionMonitoring.Services;
 
@@ -33,7 +35,7 @@ public sealed class OpenCodeUsageClient
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
         using var response = await _http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"usage HTTP {(int)response.StatusCode}");
+            throw TransportError(response.StatusCode, "usage");
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var u = doc.RootElement.GetProperty("usage");
         return (Parse(u, "rolling"), Parse(u, "weekly"), Parse(u, "monthly"));
@@ -50,7 +52,8 @@ public sealed class OpenCodeUsageClient
 
     // ---- 窗口绝对值（OAuth + x-org-id） ----
 
-    public sealed record GoMeter(string Kind, DateTimeOffset? ResetsAt, long? LimitMicroCents, long? RemainingMicroCents);
+    public sealed record GoMeter(string Kind, DateTimeOffset? ResetsAt,
+        long? UsedMicroCents, long? LimitMicroCents, long? RemainingMicroCents);
 
     public async Task<List<GoMeter>> FetchGoStatusAsync(string server, string accessToken, string? orgId, CancellationToken ct)
     {
@@ -58,7 +61,8 @@ public sealed class OpenCodeUsageClient
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
         if (!string.IsNullOrEmpty(orgId)) request.Headers.Add("x-org-id", orgId);
         using var response = await _http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return new List<GoMeter>();
+        if (!response.IsSuccessStatusCode)
+            throw TransportError(response.StatusCode, "go/status");
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var meters = new List<GoMeter>();
@@ -68,6 +72,7 @@ public sealed class OpenCodeUsageClient
             meters.Add(new GoMeter(
                 GetString(m, "kind") ?? "",
                 GetDateTime(m, "resetsAt"),
+                GetLong(m, "usedMicroCents"),
                 GetLong(m, "limitMicroCents"),
                 GetLong(m, "remainingMicroCents")));
         }
@@ -122,8 +127,23 @@ public sealed class OpenCodeUsageClient
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
         if (!string.IsNullOrEmpty(orgId)) request.Headers.Add("x-org-id", orgId);
         using var response = await _http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode)
+            throw TransportError(response.StatusCode, path);
         return await response.Content.ReadAsStringAsync(ct);
+    }
+
+    private static QueryTransportException TransportError(System.Net.HttpStatusCode status, string endpoint)
+    {
+        var candidateStatus = status switch
+        {
+            System.Net.HttpStatusCode.Unauthorized => CandidateStatus.AuthRequired,
+            System.Net.HttpStatusCode.Forbidden => CandidateStatus.Forbidden,
+            System.Net.HttpStatusCode.TooManyRequests => CandidateStatus.RateLimited,
+            _ when (int)status >= 500 => CandidateStatus.NetworkFailure,
+            _ => CandidateStatus.SchemaMismatch,
+        };
+        return new QueryTransportException(candidateStatus,
+            $"OpenCode {endpoint} HTTP {(int)status}", (int)status);
     }
 
     private static string? GetString(JsonElement e, string name)

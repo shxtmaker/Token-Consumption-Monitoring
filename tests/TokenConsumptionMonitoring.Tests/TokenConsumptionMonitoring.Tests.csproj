@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\TokenUsageMonitorV3.csproj" />
+    <ProjectReference Include="..\..\TokenConsumptionMonitoring.csproj" />
   </ItemGroup>
 
 </Project>

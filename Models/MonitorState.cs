@@ -92,11 +92,13 @@ public sealed class MonitorState : INotifyPropertyChanged
         Snapshot.Update(snapshot, showDailyUsage);
         SetLastSuccess(snapshot.Metadata.FetchedAt);
         SetConnection(
-            snapshot.Status is SnapshotStatus.Success or SnapshotStatus.SuccessPartial or SnapshotStatus.ProbeOnly
+            snapshot.Status is SnapshotStatus.Success or SnapshotStatus.ProbeOnly
                 ? ConnectionStatus.Ok
                 : snapshot.Status switch
                 {
+                    SnapshotStatus.SuccessPartial => ConnectionStatus.Warn,
                     SnapshotStatus.AuthRequired => ConnectionStatus.AuthError,
+                    SnapshotStatus.Forbidden => ConnectionStatus.AuthError,
                     SnapshotStatus.Stale => ConnectionStatus.Warn,
                     SnapshotStatus.NoData => ConnectionStatus.Unknown,
                     _ => ConnectionStatus.Offline,
@@ -108,12 +110,17 @@ public sealed class MonitorState : INotifyPropertyChanged
                 SnapshotStatus.ProbeOnly => "连接正常",
                 SnapshotStatus.NoData => "暂无数据",
                 SnapshotStatus.AuthRequired => "需要鉴权",
+                SnapshotStatus.Forbidden => "权限不足",
                 SnapshotStatus.Stale => "数据已过期",
+                SnapshotStatus.RateLimited => "请求受限",
+                SnapshotStatus.SchemaMismatch => "响应结构不匹配",
                 SnapshotStatus.TemporaryFailure => "暂时失败",
                 SnapshotStatus.PermanentFailure => "无用量来源",
                 _ => "未连接",
             },
-            snapshot.Status is SnapshotStatus.AuthRequired ? "点击按钮可重新登录/更新凭据" : "");
+            snapshot.Status is SnapshotStatus.AuthRequired or SnapshotStatus.Forbidden
+                ? "点击按钮可重新登录/更新凭据"
+                : "");
     }
 
     /// <summary>应用扫描诊断（MainPanel 左栏/中栏/右栏）。</summary>
@@ -131,7 +138,7 @@ public sealed class MonitorState : INotifyPropertyChanged
     public void ClearRuntime()
     {
         Snapshot.Reset();
-        Diagnostics.SetScanning(false);
+        Diagnostics.Clear();
         SetConnection(ConnectionStatus.Unknown, "未连接", "");
         SetLastSuccess(null);
     }

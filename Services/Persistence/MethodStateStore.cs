@@ -4,7 +4,7 @@ using TokenConsumptionMonitoring.Models.Usage;
 namespace TokenConsumptionMonitoring.Services.Persistence;
 
 /// <summary>
-/// 页面运行时方法状态：候选链、当前方法、检测指纹与最近扫描时间。
+/// 页面扫描状态：候选链、能力槽来源选择、检测指纹与最近扫描时间。
 /// 与用户配置分离、可重建；绑定页面身份与配置指纹；失效时丢弃并重新扫描，不删除用户配置或凭据。
 /// </summary>
 public sealed class PageMethodState
@@ -13,9 +13,11 @@ public sealed class PageMethodState
     public string Fingerprint { get; set; } = "";
     public DateTimeOffset ScannedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<MethodCandidate> Candidates { get; set; } = new();
+    public Dictionary<CapabilityKind, string> SelectedMethodIdsByCapability { get; set; } = new();
+
+    /// <summary>诊断兼容字段，仅表示能力计划中的第一个方法，不再作为唯一选择依据。</summary>
     public string? SelectedMethodId { get; set; }
     public CandidateStatus SelectionStatus { get; set; }
-    public string? TemporaryOverrideMethodId { get; set; }
 }
 
 /// <summary>方法状态存储：%APPDATA%\TokenConsumptionMonitoring\runtime\{pageId}.json（原子写入）。</summary>

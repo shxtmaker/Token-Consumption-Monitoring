@@ -4,7 +4,7 @@ namespace TokenConsumptionMonitoring.Models;
 
 /// <summary>
 /// 页面：一套完整的 API 配置单元（v4 取代 Account）。
-/// key 不存于此——仅存引用，密钥在凭据管理器（兼容 target Legacy.ApiKeyPrefix.&lt;Id&gt;）。
+/// key 不存于此，仅保存页面身份相关的凭据 target 计算结果。
 /// </summary>
 public sealed class Page
 {
@@ -13,7 +13,7 @@ public sealed class Page
     /// <summary>页面名称（= 小组件名称）。</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>Base URL（适配器判定依据）。</summary>
+    /// <summary>Base URL（仅作为来源识别提示）。</summary>
     public string BaseUrl { get; set; } = "";
 
     /// <summary>API 协议（决定认证方式与探测端点）。</summary>
@@ -30,8 +30,8 @@ public sealed class Page
 
     public int SortOrder { get; set; }
 
-    /// <summary>凭据管理器 target（DeepSeekConsole 页面无 key）。兼容标识，见 <see cref="Legacy"/>。</summary>
-    public string KeyTarget => Services.Legacy.ApiKeyTarget(Id);
+    /// <summary>凭据管理器 target（DeepSeekConsole 页面无 key）。</summary>
+    public string KeyTarget => Services.AppIdentity.ApiKeyTarget(Id);
 
     /// <summary>是否已配置 key（控制台会话协议无需 key）。</summary>
     public bool NeedsKey => Protocol != KeyFormat.Protocol.DeepSeekConsole;

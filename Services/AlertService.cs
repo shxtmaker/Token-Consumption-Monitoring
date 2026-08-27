@@ -5,10 +5,10 @@ namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>
 /// 能力告警：按能力与来源身份评估窗口/额度告警。
-/// - 带百分比和上限的窗口使用 WarnPercent/CriticalPercent；rate-limited 进入严重状态。
+/// - 带百分比和上限的窗口使用 WarnPercent/CriticalPercent；限流状态不触发新告警。
 /// - 余额/额度仅当存在明确上限、剩余值和用户阈值时告警。
 /// - 报告实际费用可作为未来费用告警基础；估算成本不告警。
-/// - 无数据、过期、鉴权失败、Probe 和部分成功只显示状态，不触发用量告警。
+/// - 无数据、过期、鉴权失败、Probe 和临时失败只显示状态，不触发用量告警；部分成功仅评估新鲜条目。
 /// - 去重键 = PageId + SourceIdentity + CapabilityKind + WindowKey。
 /// </summary>
 public sealed class AlertService
@@ -36,15 +36,22 @@ public sealed class AlertService
         var windowLevels = new List<(string, AlertLevel)>(snapshot.Windows.Count());
         lock (_lock)
         {
+            // 失败、过期、无数据和仅探测快照只显示状态，不产生新的用量告警。
+            var canAlert = snapshot.Status is SnapshotStatus.Success or SnapshotStatus.SuccessPartial;
             foreach (var window in snapshot.Windows)
             {
-                var l = EvaluateWindow(pageId, window);
+                var l = canAlert ? EvaluateWindow(pageId, window) : AlertLevel.None;
+                if (!canAlert) _criticalNotified.Remove(DedupKey(pageId, window));
                 windowLevels.Add((window.WindowKey, l));
                 overall = Higher(overall, l);
             }
 
-            foreach (var balance in snapshot.Balances)
-                overall = Higher(overall, EvaluateBalance(pageId, balance));
+            if (canAlert)
+                foreach (var balance in snapshot.Balances)
+                    overall = Higher(overall, EvaluateBalance(pageId, balance));
+            else
+                foreach (var balance in snapshot.Balances)
+                    _criticalNotified.Remove(DedupKey(pageId, balance));
         }
         LastLevel = overall;
         return new SnapshotAlertResult(overall, windowLevels);
@@ -52,28 +59,42 @@ public sealed class AlertService
 
     private AlertLevel EvaluateWindow(string pageId, RollingWindowValue window)
     {
+        var key = DedupKey(pageId, window);
         // 过期/估算/无百分比上限的数据不触发用量告警
-        if (window.IsStale(DateTimeOffset.UtcNow)) return AlertLevel.None;
-        if (window.Percent is null && window.Limit is null) return AlertLevel.None;
+        if (window.IsStale || window.IsEstimated || window.IsExpired(DateTimeOffset.UtcNow))
+        {
+            _criticalNotified.Remove(key);
+            return AlertLevel.None;
+        }
+        var normalizedStatus = window.Status?.Replace('_', '-');
+        if (normalizedStatus?.Contains("rate-limit", StringComparison.OrdinalIgnoreCase) == true
+            || window.Percent is null && window.Limit is null)
+        {
+            _criticalNotified.Remove(key);
+            return AlertLevel.None;
+        }
 
         var percent = window.EffectivePercent();
-        var isRateLimited = string.Equals(window.Status, "rate-limited", StringComparison.OrdinalIgnoreCase);
-        var level = isRateLimited || percent >= _settings.CriticalPercent
+        var level = percent >= _settings.CriticalPercent
             ? AlertLevel.Critical
             : percent >= _settings.WarnPercent
                 ? AlertLevel.Warn
                 : AlertLevel.None;
 
-        var key = DedupKey(pageId, window);
         NotifyTransition(key, level, $"{window.WindowName} 即将用尽 — 已使用 {percent}%");
         return level;
     }
 
     private AlertLevel EvaluateBalance(string pageId, BalanceQuotaValue balance)
     {
+        var key = DedupKey(pageId, balance);
         // 余额/额度只有存在明确上限、剩余值和用户阈值时告警
-        if (balance.IsStale(DateTimeOffset.UtcNow)) return AlertLevel.None;
-        if (balance.Limit is not { } limit || limit <= 0 || balance.Remaining is not { } rem) return AlertLevel.None;
+        if (balance.IsStale || balance.IsEstimated || balance.IsExpired(DateTimeOffset.UtcNow)
+            || balance.Limit is not { } limit || limit <= 0 || balance.Remaining is not { } rem)
+        {
+            _criticalNotified.Remove(key);
+            return AlertLevel.None;
+        }
 
         var pct = (int)Math.Round(Math.Max(0, Math.Min(100, (double)(limit - rem) / (double)limit * 100)));
         var level = pct >= _settings.CriticalPercent
@@ -82,7 +103,6 @@ public sealed class AlertService
                 ? AlertLevel.Warn
                 : AlertLevel.None;
 
-        var key = DedupKey(pageId, balance);
         NotifyTransition(key, level, $"额度 已使用 {pct}%");
         return level;
     }
@@ -104,11 +124,7 @@ public sealed class AlertService
     private static string DedupKey(string pageId, CapabilityValue value)
         => $"{pageId}|{value.Source.StableKey}|{value.Kind}|{KeyOf(value)}";
 
-    private static string KeyOf(CapabilityValue value) => value switch
-    {
-        RollingWindowValue w => w.WindowKey,
-        _ => value.Kind.ToString(),
-    };
+    private static string KeyOf(CapabilityValue value) => CapabilityItemKey.For(value).ItemKey;
 
     private static AlertLevel Higher(AlertLevel a, AlertLevel b)
         => b > a ? b : a;

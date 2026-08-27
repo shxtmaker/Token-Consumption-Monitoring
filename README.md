@@ -1,92 +1,90 @@
-# Token Consumption Monitoring
+# TokenConsumptionMonitoring
 
-**V1.2.0** — Win11 桌面小部件：统一查询方法与能力驱动的 API 用量监控。
+**V1.2.0**：Windows 桌面用量与额度监控工具。应用常驻托盘，提供桌面组件和配置面板，并以能力快照统一展示不同来源的数据。
 
-托盘常驻 + 悬浮窗小组件 + 面板（含扫描诊断工作台）。按“查询方法”的方式统一识别和读取各类来源的用量，页面不再绑定供应商或套餐布局。
+## 安装与升级
+
+本版本使用新的应用标识 `TokenConsumptionMonitoring`，不能覆盖安装旧版 `TokenUsageMonitorV3`。从旧版升级时必须退出旧程序，并重新安装 `TokenConsumptionMonitoring-Setup-1.2.0.exe`，或下载免安装压缩包后解压到新目录运行 `TokenConsumptionMonitoring.exe`。
+
+本版本不会自动读取旧版的数据目录、页面配置或凭据。升级前请在旧版中自行记录需要保留的配置，安装后重新创建页面并重新配置凭据。
 
 ## 架构
 
-项目从「页面 URL → 单一适配器 → 固定布局」重构为「方法无关页面配置 → 候选扫描 → 方法选择 → 能力快照 → 能力驱动渲染」：
+页面只保存名称、端点、协议、凭据引用和配置提示。运行时按以下边界工作：
 
 ```text
-PageConfigStore ──┐
-CredentialResolver┼─> PageScanCoordinator ─> CandidateChain
-LocalRecordRegistry┘            │                    │
-                                 ▼                    ▼
-                       MethodSelector ───────> UsageQueryCoordinator
-                                                      │
-              ┌───────────────────────────────────────┼───────────────┐
-              ▼                                       ▼               ▼
-      CapabilitySnapshot                        MethodStateStore  AlertEvaluator
-              │                                       │
-              ▼                                       ▼
-    MainPanel / FloatingWindow（按能力渲染）     指纹缓存 / 重试 / 单飞
+PageConfigStore
+      │
+      ▼
+PageRuntimeCoordinator ──> CapabilitySourcePlan ──> QueryMethod
+      │                                      │
+      ▼                                      ▼
+PageRuntimeStateStore                    CapabilitySnapshot
+      │                                      │
+      └──────────────> 活动页投影到面板、桌面组件和托盘
 ```
 
-- **查询方法**（`IQueryMethod`）：描述 → 扫描 → 查询 三阶段，按“来源、能力、凭据范围”拆到可独立失败/回退的最小单元；套餐名称/planId 不参与。
-- **能力化快照**（`CapabilitySnapshot`）：报告用量、报告费用、估算成本、余额/额度、滚动窗口、响应遥测、Probe 独立表达；同一能力只选一份事实，不跨来源相加，不把连接探测冒充用量。
-- **自动扫描**：保存、端点/协议/凭据变化、指纹变化、连续失败、手动重扫触发；普通轮询只查已选方法。
-- **诊断工作台**：面板三栏 —— 配置与扫描状态 / 候选方法链 / 能力矩阵；候选并列时可“使用此方法”临时覆盖（仅运行时，重扫后恢复）。
+- `IQueryMethod` 统一描述、扫描和查询阶段。方法不绑定套餐或固定页面布局。
+- `CapabilitySourcePlan` 按能力槽选择来源。同一能力槽只保留一个来源，选中来源返回的多个窗口、币种或统计条目全部保留。
+- 普通轮询只查询当前计划中的来源。来源失败时保留最近成功值并标记为过期，同时为受影响能力尝试候选回退。
+- `PageRuntimeStateStore` 按页面保存扫描报告、来源计划、快照、失败状态和进程内临时覆盖。非活动页面不会改写活动页面的界面、托盘或桌面组件。
+- 报告用量和报告成本直接展示；估算成本、模型目录和 token 细分只保留在领域接口中。
 
 ## 目录
 
 | 目录 | 职责 |
 |---|---|
-| `Models/Usage/` | 领域契约：能力、来源、候选、快照、凭据引用 |
-| `Models/PageConfig.cs` | 方法无关页面配置 + envelope 迁移 |
-| `Services/QueryMethods/` | 查询方法实现 + 注册表 + 首期方法目录 |
-| `Services/Scanning/` | 指纹、扫描上下文、凭据解析、候选选择 |
-| `Services/Runtime/` | 页面运行时协调器、单飞、缓存、重试 |
-| `Services/Persistence/` | 方法状态存储（候选链/指纹） |
-| `UI/Diagnostics/` | 能力快照 / 诊断工作台 ViewModel |
-| `tests/` | 迁移、契约、选择、协调器单元测试 |
+| `Models/Usage/` | 能力、来源、候选、快照和凭据引用契约 |
+| `Models/PageConfig.cs` | 方法无关的页面配置和版本化文档 |
+| `Services/QueryMethods/` | 查询方法、错误分类和注册表 |
+| `Services/Scanning/` | 指纹、扫描上下文、凭据解析和候选选择 |
+| `Services/Runtime/` | 页面协调、来源计划、缓存、重试和运行时状态 |
+| `Services/Persistence/` | 页面扫描状态和候选选择持久化 |
+| `UI/Diagnostics/` | 能力快照和扫描诊断视图模型 |
+| `tests/` | 配置恢复、能力契约、来源选择和协调器回归测试 |
 
 ## 已接入的查询方法
 
-已实现（真实端点，使用现有客户端）：
+已实现并注册：
 
-- `endpoint.probe` —— 通用连接/鉴权/模型目录（任意协议）
-- `opencode.rolling-window.api-key` —— 5h/周/月 滚动窗口
-- `opencode.allowance.oauth` —— OAuth 会话窗口绝对额度
-- `deepseek.balance.api-key` —— 官方余额
-- `deepseek.console-usage.compat` —— 控制台会话用量（私有兼容，仅显式控制台页面启用）
-- `commandcode.allowance-window.compat` —— 月额度 + 5h/周窗口（私有兼容）
-- `local.zcode.usage` —— ZCode 本地 SQLite 记录（本地备选）
+- `endpoint.probe`：通用连接、鉴权和模型目录探测，不产生用量结论。
+- `deepseek.balance.api-key`：DeepSeek 官方余额。
+- `local.zcode.usage`：本机 ZCode SQLite 记录，本地回退来源。
+- `deepseek.console-usage.compat`：DeepSeek 控制台会话用量，需页面显式启用。
+- `opencode.rolling-window.api-key`：OpenCode Go 窗口数据，需页面显式启用。
+- `opencode.allowance.oauth`：OpenCode OAuth 窗口额度，需页面显式启用。
+- `commandcode.allowance-window.compat`：Command Code 窗口额度，需页面显式启用。
 
-已登记目录（凭据门控，待接入端点）：OpenRouter key/credits/activity、OpenAI Admin Usage/Costs、Anthropic Admin Usage/Costs、OpenCode Console 导出、xAI Management、Fireworks quota/usage 与本地 OpenCode/Claude Code/Codex/Gemini 记录。这些方法参与扫描并给出可解释的凭据/未接入状态，不会冒充可用来源。
+尚未实现的方法不注册为候选，不会以占位结果参与扫描或查询。
 
-## 迁移
+## 配置与恢复
 
-- `pages.json` 使用文件级 `schemaVersion` envelope；旧 `List<Page>` 数组自动迁移，**页面 Id 稳定保留**，凭据继续用兼容 target `TokenUsageMonitorV3.ApiKey.<Id>`。
-- 未知 schema / 损坏 JSON / 重复 Id 只写入脱敏诊断，**不覆盖原文件**；写入为原子替换并保留 `.bak`。
-- 旧数据目录 `%APPDATA%\TokenUsageMonitorV3` 先读后迁移到 `TokenConsumptionMonitoring`；旧凭据 target、互斥量、自动启动键集中在 `Legacy` 兼容常量。
-- 项目 exe 名称保持 `TokenUsageMonitorV3`（覆盖升级入口不变）。
+- `pages.json` 使用带 `schemaVersion` 的文件级 envelope。旧根数组只做当前文档结构迁移，页面 Id 保持不变，并使用新的页面 API key 引用格式。
+- JSON 损坏、版本过新、重复 Id 或关键字段缺失时进入只读恢复态。普通保存会被存储层拒绝，原文件保持不变。
+- 配置写入使用临时文件和原子替换，并保留一份 `.bak` 备份。
+- 新版本只使用 `TokenConsumptionMonitoring` 的数据目录、日志、凭据 target、互斥量、自动启动项和发布产物；不会自动导入其他产品标识下的数据或凭据。
+- 私有兼容方法默认不执行网络请求。临时来源覆盖只存于当前进程，重新扫描、配置变化或重启后失效。
 
 ## 构建与测试
 
-要求 .NET 8 SDK：
+要求 .NET 8 SDK 和 Windows WPF 工具链：
 
 ```bash
-# Release 构建（应用 + 测试）
 dotnet build TokenConsumptionMonitoring.sln -c Release
-
-# 单元测试（迁移 / 契约 / 选择 / 协调器）
 dotnet test tests/TokenConsumptionMonitoring.Tests/TokenConsumptionMonitoring.Tests.csproj -c Release
-
-# 发行单文件（Windows 验证 WPF / WebView2 / 凭据管理器 / 通知）
-dotnet publish -c Release -r win-x64 --self-contained \
+dotnet publish TokenConsumptionMonitoring.csproj -c Release -r win-x64 --self-contained \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-产物为单文件 `TokenUsageMonitorV3.exe`。安装包（Inno Setup 6）脚本见 `packaging/TokenUsage-Setup.iss`。
+发布产物为 `TokenConsumptionMonitoring.exe`。Inno Setup 6 安装脚本位于 `packaging/TokenConsumptionMonitoring-Setup.iss`。
 
 ## 使用
 
-1. 托盘图标 / 悬浮窗 → 打开配置面板
-2. 「新建」：填写名称、Base URL、API Key、API 格式；保存后自动扫描可用查询方法并显示候选链
-3. 「编辑」载入选中页面修改；「重新扫描」手动重扫
-4. 「登录」按候选凭据类型分发（控制台会话 → WebView2；OAuth → 设备码；API Key 无需登录）
-5. 候选并列时在面板点击「使用此方法」临时覆盖自动选择
+1. 从托盘或桌面组件打开配置面板。
+2. 点击「新建」，填写名称、Base URL、API Key、API 格式和配置提示，保存后自动扫描。
+3. 在候选方法链中查看来源、凭据范围、状态和诊断证据。
+4. 候选并列时可点击「使用此方法」临时覆盖自动选择；重新扫描后恢复自动选择。
+5. 「登录」按当前页面凭据类型打开 DeepSeek 控制台或 OpenCode 设备码流程。
 
 ## 作者
 

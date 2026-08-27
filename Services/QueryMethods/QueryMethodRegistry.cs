@@ -5,7 +5,7 @@ namespace TokenConsumptionMonitoring.Services.QueryMethods;
 
 /// <summary>
 /// 查询方法注册表：枚举全部已注册方法（远程 + 本地记录）。
-/// 每个方法在 ScanAsync 内自行判定启用条件（私有兼容方法仅旧配置/显式启用），
+/// 每个方法在 ScanAsync 内自行判定启用条件（私有兼容方法仅页面显式启用），
 /// 注册表不按供应商或套餐名过滤。
 /// </summary>
 public sealed class QueryMethodRegistry
@@ -23,7 +23,7 @@ public sealed class QueryMethodRegistry
 
     public IQueryMethod? Find(string methodId) => _methods.FirstOrDefault(m => m.Describe().MethodId == methodId);
 
-    /// <summary>装配默认注册表（接入现有服务的真实方法与目录门控方法）。</summary>
+    /// <summary>装配默认注册表。未实现的方法不注册为候选。</summary>
     public static QueryMethodRegistry BuildDefault(
         OpenCodeUsageClient opencode,
         OpenCodeAuthService openCodeAuth,
@@ -42,7 +42,6 @@ public sealed class QueryMethodRegistry
             new DeepSeekConsoleUsageMethod(deepSeekSession, deepSeekUsage),
             new LocalZCodeUsageMethod(zcode),
         };
-        methods.AddRange(FirstWaveCatalog.Build());
         return new QueryMethodRegistry(methods);
     }
 }

@@ -26,6 +26,7 @@ public partial class App : System.Windows.Application
     private SettingsWindow? _settingsWindow;
     private DeepSeekLoginWindow? _dsLoginWindow;
     private DispatcherTimer? _countdownTimer;
+    private readonly CancellationTokenSource _loginCts = new();
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -46,7 +47,7 @@ public partial class App : System.Windows.Application
             args.SetObserved();
         };
 
-        _mutex = new Mutex(true, Services.Legacy.MutexName, out var createdNew);
+        _mutex = new Mutex(true, AppIdentity.MutexName, out var createdNew);
         if (!createdNew) { Shutdown(); return; }
 
         var settingsStore = new SettingsStore();
@@ -79,10 +80,10 @@ public partial class App : System.Windows.Application
 
         // 统一方法注册表 + 运行时协调器（扫描/选择/回退/缓存）
         var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, zcode, commandCode);
-        var fingerprints = new FingerprintBuilder(registry.Descriptors.Select(d => d.ImplementationVersion));
+        var fingerprints = new FingerprintBuilder(registry.Descriptors);
         var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache(), zcode);
 
-        // 页面配置：版本化 envelope + 旧目录迁移
+        // 页面配置：版本化 envelope；结构迁移可写回，恢复态保持只读
         var pageStore = new PageConfigStore();
         var loadResult = pageStore.Load();
         var document = loadResult.Document;
@@ -91,10 +92,12 @@ public partial class App : System.Windows.Application
             Services.Logger.Log($"pages 加载诊断：{document.Diagnostic}");
             _tray.Balloon("页面配置未加载", document.Diagnostic ?? "pages.json 无法读取");
         }
-        else if (loadResult.NeedsMigrateWrite)
+        else if (loadResult.RequiresSchemaRewrite)
         {
-            Services.Logger.Log("pages 从旧目录迁移到新目录");
-            pageStore.Save(document);
+            Services.Logger.Log("pages schema 已迁移为当前 envelope");
+            var saveResult = pageStore.Save(document, loadResult.WriteLease!);
+            if (!saveResult.Succeeded)
+                Services.Logger.Log($"pages schema 迁移写回失败：{saveResult.Diagnostic}");
         }
         var pages = document.Pages;
 
@@ -165,6 +168,8 @@ public partial class App : System.Windows.Application
             // 活动页不存在/被删除时选择当前排序第一项并修正保存（新建/编辑/删除不无条件重置到第一项）
             if (engine.ActivePage is null && engine.Pages.FirstOrDefault() is { } first)
                 engine.SetActivePage(first.Id);
+            else if (engine.ActivePage is null)
+                engine.SetActivePage(null);
             else
                 _state!.SetPageState(engine.ActivePage is not null, engine.ActivePage?.Name ?? "");
         };
@@ -217,7 +222,7 @@ public partial class App : System.Windows.Application
 
     private async Task LoginOpenCodeAsync()
     {
-        try { _tray!.Balloon("OpenCode", await _openCodeAuth!.LoginAsync()); }
+        try { _tray!.Balloon("OpenCode", await _openCodeAuth!.LoginAsync(_loginCts.Token)); }
         catch (Exception ex) { _tray!.Balloon("OpenCode 登录失败", ex.Message); }
     }
 
@@ -255,6 +260,7 @@ public partial class App : System.Windows.Application
     private void ExitApp()
     {
         _countdownTimer?.Stop();
+        _loginCts.Cancel();
         _pageEngine?.Dispose();
         _deepSeekSession?.Dispose();
         _tray?.Dispose();
@@ -265,6 +271,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _loginCts.Dispose();
         _mutex?.Dispose();
         base.OnExit(e);
     }

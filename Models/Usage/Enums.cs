@@ -62,7 +62,7 @@ public enum SourceStability
     /// <summary>本地备选记录，官方不可用时按能力回退。</summary>
     LocalFallback,
 
-    /// <summary>私有兼容来源，仅旧配置或显式启用。</summary>
+    /// <summary>私有兼容来源，仅页面显式启用。</summary>
     PrivateCompat,
 
     /// <summary>仅连接诊断，不参与用量选择。</summary>
@@ -78,7 +78,7 @@ public enum MethodEnablement
     /// <summary>官方条件方法：仅凭据/权限明确匹配时参与。</summary>
     Conditional,
 
-    /// <summary>私有兼容方法：仅旧配置或显式启用。</summary>
+    /// <summary>私有兼容方法：仅页面显式启用。</summary>
     PrivateCompatOnly,
 }
 
@@ -162,8 +162,17 @@ public enum SnapshotStatus
     /// <summary>鉴权失败/需要登录。</summary>
     AuthRequired,
 
+    /// <summary>服务端拒绝访问（403），与缺少/失效凭据区分。</summary>
+    Forbidden,
+
+    /// <summary>服务端限流（429），等待冷却后重试。</summary>
+    RateLimited,
+
     /// <summary>临时失败（网络/限流），可重试。</summary>
     TemporaryFailure,
+
+    /// <summary>响应结构缺失或版本不兼容。</summary>
+    SchemaMismatch,
 
     /// <summary>永久失败（schema 不支持/无用量来源）。</summary>
     PermanentFailure,
@@ -189,8 +198,8 @@ public enum CredentialRefKind
     /// <summary>无需远程凭据（本地记录 / 无 key 页面）。</summary>
     None,
 
-    /// <summary>旧页面 API key（兼容 target：TokenUsageMonitorV3.ApiKey.&lt;PageId&gt;）。</summary>
-    LegacyPageApiKey,
+    /// <summary>按页面身份保存的 API key。</summary>
+    PageApiKey,
 
     /// <summary>命名 API key target（如按供应商设置的凭据）。</summary>
     ApiKeyTarget,

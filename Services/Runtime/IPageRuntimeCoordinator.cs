@@ -24,4 +24,18 @@ public interface IPageRuntimeCoordinator
 
     /// <summary>临时覆盖自动选择（只作用于当前运行时；配置变化/重扫后恢复自动选择）。</summary>
     void SetTemporaryOverride(string pageId, string? methodId);
+
+    /// <summary>读取指定页面最近一次运行时快照，供活动页切换时立即投影。</summary>
+    bool TryGetSnapshot(string pageId, out CapabilitySnapshot snapshot)
+    {
+        snapshot = default!;
+        return false;
+    }
+
+    /// <summary>读取指定页面最近一次扫描报告，供活动页切换时恢复诊断面板。</summary>
+    bool TryGetScanReport(string pageId, out ScanReport report)
+    {
+        report = default!;
+        return false;
+    }
 }

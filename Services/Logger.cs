@@ -5,7 +5,7 @@ public static class Logger
 {
     private static readonly string Path = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        Legacy.CurrentDataDirectoryName, "app.log");
+        AppIdentity.DataDirectoryName, "app.log");
 
     private static readonly object Lock = new();
 

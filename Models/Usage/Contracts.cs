@@ -4,7 +4,7 @@ namespace TokenConsumptionMonitoring.Models.Usage;
 
 /// <summary>
 /// 查询方法描述：声明稳定的方法标识、凭据类别、可提供能力与来源等级。
-/// 方法按“来源、能力、凭据范围”拆到可独立回退的最小单元；套餐名称/planId 不参与。
+/// 方法按“来源、能力、凭据范围”拆到可独立回退的最小单元；套餐名称不参与。
 /// </summary>
 public sealed record QueryMethodDescriptor(
     string MethodId,
@@ -128,9 +128,9 @@ public sealed record CredentialReference(CredentialRefKind Kind, string? Target 
 {
     public static CredentialReference None { get; } = new(CredentialRefKind.None);
 
-    /// <summary>旧页面 API key：兼容 target TokenUsageMonitorV3.ApiKey.&lt;PageId&gt;。</summary>
-    public static CredentialReference LegacyPageApiKey(string pageId) =>
-        new(CredentialRefKind.LegacyPageApiKey, Legacy.ApiKeyTarget(pageId));
+    /// <summary>按页面身份创建 API key 引用。</summary>
+    public static CredentialReference PageApiKey(string pageId) =>
+        new(CredentialRefKind.PageApiKey, AppIdentity.ApiKeyTarget(pageId));
 
     public static CredentialReference ApiKeyTarget(string target) => new(CredentialRefKind.ApiKeyTarget, target);
 
@@ -146,7 +146,7 @@ public sealed record CredentialReference(CredentialRefKind Kind, string? Target 
     public CredentialClass ResolveClass() => Kind switch
     {
         CredentialRefKind.None => CredentialClass.None,
-        CredentialRefKind.LegacyPageApiKey => CredentialClass.ApiKey,
+        CredentialRefKind.PageApiKey => CredentialClass.ApiKey,
         CredentialRefKind.ApiKeyTarget => CredentialClass.ApiKey,
         CredentialRefKind.GlobalOAuth => CredentialClass.OAuthSession,
         CredentialRefKind.GlobalConsoleSession => CredentialClass.ConsoleSession,
