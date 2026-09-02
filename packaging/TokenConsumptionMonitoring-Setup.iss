@@ -1,7 +1,7 @@
-; Token Consumption Monitoring V1.2.0 安装脚本（Inno Setup 6）
+; Token Consumption Monitoring V1.2.1 安装脚本（Inno Setup 6）
 ; 前置：先执行 dotnet publish -c Release -o publish（见 README 构建章节）
 #define MyAppName "TokenConsumptionMonitoring"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "shxtmaker"
 #define MyAppExeName "TokenConsumptionMonitoring.exe"
 

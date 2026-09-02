@@ -1,10 +1,10 @@
 # TokenConsumptionMonitoring
 
-**V1.2.0**：Windows 桌面用量与额度监控工具。应用常驻托盘，提供桌面组件和配置面板，并以能力快照统一展示不同来源的数据。
+**V1.2.1**：Windows 桌面用量与额度监控工具。应用常驻托盘，提供桌面组件和配置面板，并以能力快照统一展示不同来源的数据。
 
 ## 安装与升级
 
-本版本使用新的应用标识 `TokenConsumptionMonitoring`，不能覆盖安装旧版 `TokenUsageMonitorV3`。从旧版升级时必须退出旧程序，并重新安装 `TokenConsumptionMonitoring-Setup-1.2.0.exe`，或下载免安装压缩包后解压到新目录运行 `TokenConsumptionMonitoring.exe`。
+本版本使用新的应用标识 `TokenConsumptionMonitoring`，不能覆盖安装旧版 `TokenUsageMonitorV3`。从旧版升级时必须退出旧程序，并重新安装 `TokenConsumptionMonitoring-Setup-1.2.1.exe`，或下载免安装压缩包后解压到新目录运行 `TokenConsumptionMonitoring.exe`。
 
 本版本不会自动读取旧版的数据目录、页面配置或凭据。升级前请在旧版中自行记录需要保留的配置，安装后重新创建页面并重新配置凭据。
 
