@@ -38,8 +38,8 @@ public partial class SettingsWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!int.TryParse(PollBox.Text, out var poll) || poll is < 10 or > 120)
-        { MessageBox.Show("轮询间隔需在 10–120 分钟之间"); return; }
+        if (!int.TryParse(PollBox.Text, out var poll) || poll is < 1 or > 120)
+        { MessageBox.Show("轮询间隔需在 1–120 分钟之间"); return; }
         if (!int.TryParse(CheckBox.Text, out var check) || check is < 10 or > 600)
         { MessageBox.Show("会话自检间隔需在 10–600 秒之间"); return; }
 

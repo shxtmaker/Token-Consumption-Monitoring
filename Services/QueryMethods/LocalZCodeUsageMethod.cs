@@ -59,13 +59,11 @@ public sealed class LocalZCodeUsageMethod : IQueryMethod
         var source = candidate.Source ?? new SourceIdentity(Provider, "local", Descriptor.MethodId, "~/.zcode/cli/db/db.sqlite");
 
         long total = 0;
-        var matchedProvider = false;
         long? requestCount = null;
         var rows = new List<ModelUsageRow>();
         foreach (var pu in byProvider)
         {
             if (!Belongs(pu.Provider, page)) continue;
-            matchedProvider = true;
             foreach (var m in pu.Models)
             {
                 total += m.Tokens;
@@ -73,13 +71,14 @@ public sealed class LocalZCodeUsageMethod : IQueryMethod
             }
         }
 
-        if (!matchedProvider)
+        if (!IsAttributable(page))
         {
             return new MethodQueryResult(Array.Empty<CapabilityValue>(), SnapshotStatus.NoData,
                 new FailureInfo(CandidateStatus.NoReliableUsage, "未找到可归属的本地记录", DateTimeOffset.UtcNow),
                 DateTimeOffset.UtcNow);
         }
 
+        // 归属匹配但今天尚无记录（如刚跨零点）是正常空态：返回 0 值能力，不作为失败拉低整页状态。
         var capability = new ReportedUsageValue(
             CapabilityKind.ReportedUsage, source, scope,
             new Coverage(DateTime.Today, DateTime.Today.AddDays(1), Granularity.PerDay), DateTimeOffset.UtcNow,

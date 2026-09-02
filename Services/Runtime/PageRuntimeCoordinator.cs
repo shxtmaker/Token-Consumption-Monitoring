@@ -297,10 +297,14 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
         if (plan.RequiresSelection)
             failures.Add(new FailureInfo(CandidateStatus.RequiresSelection, "能力来源并列，需要人工选择", DateTimeOffset.UtcNow));
+        // 已有可用能力时，“待登录的附加能力”（如 OAuth 余额）不算故障：整页保持 Success，登录入口由诊断列与登录按钮承担。
+        // 页面没有任何可用能力时仍保留该失败，让整页表达“需要鉴权”并触发登录流程。
+        var hasFreshUsage = values.Any(value => value.Kind != CapabilityKind.ProbeDiagnostic && !value.IsStale);
         foreach (var selection in plan.Selections.Values.Where(selection => selection.Selected is null))
         {
             if (selection.Status == CandidateStatus.RequiresSelection) continue;
             if (selection.Status is CandidateStatus.Unsupported or CandidateStatus.NoReliableUsage) continue;
+            if (selection.Status == CandidateStatus.AuthRequired && hasFreshUsage) continue;
             failures.Add(new FailureInfo(selection.Status,
                 $"能力 {selection.Capability} 没有可用来源", DateTimeOffset.UtcNow));
         }

@@ -20,10 +20,10 @@ public sealed class RuntimeCoordinatorTests
         public int ScanCalls { get; private set; }
         public int QueryCalls { get; private set; }
 
-        public StubMethod(QueryMethodDescriptor descriptor, Func<int, MethodQueryResult> result)
+        public StubMethod(QueryMethodDescriptor descriptor, Func<int, MethodQueryResult> result, MethodCandidate? candidate = null)
         {
             _descriptor = descriptor;
-            _candidate = MethodSupport.Available(
+            _candidate = candidate ?? MethodSupport.Available(
                 descriptor,
                 new CredentialScope(descriptor.CredentialClass, "test"),
                 Coverage.Unknown,
@@ -232,6 +232,58 @@ public sealed class RuntimeCoordinatorTests
             Assert.Equal(first.Snapshot.Windows.Single().FetchedAt, second.Snapshot.Windows.Single().FetchedAt);
             Assert.NotNull(second.Failure);
             Assert.True(method.QueryCalls >= 2);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task AuthRequiredExtraCapability_DoesNotDowngradePageWithFreshUsage()
+    {
+        // 滚动窗口查询成功；OAuth 附加能力（如余额）等待登录不构成故障，整页保持 Success，
+        // 登录入口仍通过 AuthCredentialClass 暴露给登录流程。
+        var windowDescriptor = Descriptor("windows", CapabilityKind.RollingWindow, SourceKind.RollingWindowSnapshot);
+        var windows = new StubMethod(windowDescriptor, _ => Success(Window("five_hour", 30)));
+
+        var oauthDescriptor = new QueryMethodDescriptor(
+            "oauth.extra", SourceKind.AllowanceOrBalance, CredentialClass.OAuthSession,
+            QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.BalanceOrQuota),
+            SourceStability.OfficialConditional, MethodEnablement.Always, 30, "1.0.0");
+        var oauth = new StubMethod(oauthDescriptor, _ => Failure(),
+            MethodSupport.AuthRequired(oauthDescriptor, "需要全局 OAuth 会话"));
+
+        var runtime = NewCoordinator(windows, oauth);
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+
+            Assert.Equal(SnapshotStatus.Success, result.Snapshot.Status);
+            Assert.Null(result.Failure);
+            Assert.Empty(result.Snapshot.Balances);
+            Assert.Single(result.Snapshot.Windows);
+            Assert.Equal(CredentialClass.OAuthSession, result.AuthCredentialClass);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task AuthRequiredOnlyCapability_StillReportsAuthRequiredForLoginFlow()
+    {
+        // 页面没有任何可用能力时，等待登录必须保持“需要鉴权”，登录流程依赖该状态分发。
+        var oauthDescriptor = new QueryMethodDescriptor(
+            "oauth.only", SourceKind.AllowanceOrBalance, CredentialClass.OAuthSession,
+            QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.BalanceOrQuota),
+            SourceStability.OfficialConditional, MethodEnablement.Always, 30, "1.0.0");
+        var oauth = new StubMethod(oauthDescriptor, _ => Failure(),
+            MethodSupport.AuthRequired(oauthDescriptor, "需要全局 OAuth 会话"));
+
+        var runtime = NewCoordinator(oauth);
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+
+            Assert.Equal(SnapshotStatus.AuthRequired, result.Snapshot.Status);
+            Assert.NotNull(result.Failure);
+            Assert.Equal(CredentialClass.OAuthSession, result.AuthCredentialClass);
         }
         finally { Directory.Delete(runtime.Directory, recursive: true); }
     }
