@@ -17,5 +17,8 @@
                        VerticalAlignment="Center"/>
         </DockPanel>
         <wv2:WebView2 x:Name="DeepSeekWebView" Grid.Row="1"/>
+        <TextBlock x:Name="InitHintText" Grid.Row="1" Foreground="#E54848" FontSize="13"
+                   Margin="16" TextWrapping="Wrap" Visibility="Collapsed"
+                   VerticalAlignment="Center" TextAlignment="Center"/>
     </Grid>
 </Window>

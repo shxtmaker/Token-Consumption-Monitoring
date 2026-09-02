@@ -8,6 +8,7 @@ using TokenConsumptionMonitoring.Services.QueryMethods;
 using TokenConsumptionMonitoring.Services.Runtime;
 using TokenConsumptionMonitoring.Services.Scanning;
 using TokenConsumptionMonitoring.UI;
+using MessageBox = System.Windows.MessageBox;
 
 namespace TokenConsumptionMonitoring;
 
@@ -162,6 +163,11 @@ public partial class App : System.Windows.Application
         _panel!.RefreshRequested += () => _pageEngine?.RefreshNowAsync();
         _panel.LoginRequested += LoginCurrentPage;
         _panel.PageSwitchRequested += id => _pageEngine?.SetActivePage(id);
+        // 悬浮窗/托盘等外部入口切换活动页时，面板下拉框跟随；表单编辑中不抢占（防覆盖未保存内容）
+        _pageEngine!.ActivePageChanged += id =>
+        {
+            if (!_panel.IsEditingFormOpen) _panel.SetActivePageId(id);
+        };
         _panel.PagesChanged += () =>
         {
             var engine = _pageEngine!;
@@ -195,34 +201,36 @@ public partial class App : System.Windows.Application
         _dsLoginWindow.Activate();
     }
 
-    /// <summary>统一登录：根据当前页面状态调用对应登录入口。</summary>
-    private void LoginCurrentPage()
+    /// <summary>统一登录：按面板表单当前协议分发（DeepSeek 控制台 → 会话登录窗；OAuth 候选待凭据 → 设备码；其余 → 面板内提示）。</summary>
+    private void LoginCurrentPage(LoginKind kind)
     {
-        var page = _pageEngine?.ActivePage;
-        if (page is null)
-        {
-            _tray!.Balloon("登录", "请先创建并选择页面（面板 → 新建）。");
-            return;
-        }
-        var kind = page.CredentialRef.ResolveClass() switch
-        {
-            CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
-            CredentialClass.OAuthSession => LoginKind.OpenCode,
-            _ => LoginKind.None,
-        };
+        Services.Logger.Log($"login current page: kind={kind}");
         switch (kind)
         {
             case LoginKind.DeepSeekConsole: ShowDeepSeekLogin(); break;
             case LoginKind.OpenCode: _ = LoginOpenCodeAsync(); break;
             default:
-                _tray!.Balloon("登录", "该页面使用 API Key 认证（无需登录）；自动扫描会探测连接与可用能力。");
+                // 候选（如 opencode.allowance.oauth）等待 OAuth 会话时页面凭据虽是 API Key，仍需登录入口
+                if (_pageEngine!.ActivePageNeedsOAuthLogin())
+                {
+                    Services.Logger.Log("login: pending oauth candidate → device flow");
+                    _ = LoginOpenCodeAsync();
+                    break;
+                }
+                // 托盘气泡常被系统通知设置折叠而不可见，点「登录」必须给面板内可见反馈
+                MessageBox.Show("当前认证方式使用 API Key，无需登录；保存后自动扫描会探测连接与可用能力。",
+                    "登录", MessageBoxButton.OK, MessageBoxImage.Information);
                 break;
         }
     }
 
     private async Task LoginOpenCodeAsync()
     {
-        try { _tray!.Balloon("OpenCode", await _openCodeAuth!.LoginAsync(_loginCts.Token)); }
+        try
+        {
+            _tray!.Balloon("OpenCode", await _openCodeAuth!.LoginAsync(_loginCts.Token));
+            await _pageEngine!.RefreshNowAsync();   // 会话已变化：立即重扫，候选链的“需要凭据/权限”随之更新
+        }
         catch (Exception ex) { _tray!.Balloon("OpenCode 登录失败", ex.Message); }
     }
 

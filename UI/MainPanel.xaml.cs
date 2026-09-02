@@ -23,9 +23,12 @@ public partial class MainPanel : Window
     private readonly List<string> _modelDraft = new();
     private KeyFormat.Protocol _protocol = KeyFormat.Protocol.ChatCompletions;
     private PageConfigRecord? _editing;
+    private bool _syncingActivePage;
 
     public event Action? RefreshRequested;
-    public event Action? LoginRequested;
+
+    /// <summary>登录入口请求：由表单当前协议判定（DeepSeekConsole → 会话登录窗；None = API Key 无需登录）。</summary>
+    public event Action<LoginKind>? LoginRequested;
     public event Action? PagesChanged;
     public event Action<string>? PageSwitchRequested;
     public event Action<string>? RescanRequested;
@@ -78,13 +81,22 @@ public partial class MainPanel : Window
         if (id is null) { PageCombo.SelectedIndex = -1; return; }
         var idx = _pages.FindIndex(p => p.Id == id);
         if (PageCombo.SelectedIndex != idx)
-            PageCombo.SelectedIndex = idx;
+        {
+            // 激活页 → 下拉框的回写：抑制 SelectionChanged，避免再当成用户切换请求引发重扫
+            _syncingActivePage = true;
+            try { PageCombo.SelectedIndex = idx; }
+            finally { _syncingActivePage = false; }
+        }
     }
+
+    /// <summary>编辑/新建表单是否打开（打开时外部激活页变化不抢占下拉框，避免覆盖未保存的表单内容）。</summary>
+    public bool IsEditingFormOpen => ProviderForm.Visibility == Visibility.Visible;
 
     // ---- 页面切换 ----
 
     private void PageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_syncingActivePage) return;
         if (PageCombo.SelectedItem is PageConfigRecord page)
         {
             PageSwitchRequested?.Invoke(page.Id);
@@ -361,7 +373,17 @@ public partial class MainPanel : Window
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => RefreshRequested?.Invoke();
-    private void Login_Click(object sender, RoutedEventArgs e) => LoginRequested?.Invoke();
+
+    private void Login_Click(object sender, RoutedEventArgs e)
+    {
+        // 「登录」按钮只存在于编辑表单内：以表单当前协议判定。
+        // 新建/编辑未保存时活动页的凭据类别仍是旧值，按保存态判定会让
+        // 新建 DeepSeek 控制台页的登录被当成 API Key 页处理（用户视角 = 点了没反应）。
+        Services.Logger.Log($"panel login click: protocol={_protocol}");
+        LoginRequested?.Invoke(_protocol == KeyFormat.Protocol.DeepSeekConsole
+            ? LoginKind.DeepSeekConsole
+            : LoginKind.None);
+    }
 
     private void Rescan_Click(object sender, RoutedEventArgs e)
     {

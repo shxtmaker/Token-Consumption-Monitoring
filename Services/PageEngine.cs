@@ -35,6 +35,9 @@ public sealed class PageEngine : IDisposable
 
     public event Action? StateChanged;
 
+    /// <summary>活动页实际发生变化（切换/轮换/删除后回退），携带新活动页 Id；面板下拉框据此同步。</summary>
+    public event Action<string?>? ActivePageChanged;
+
     /// <summary>需要登录（按候选凭据类别分发：ConsoleSession→DeepSeek 登录窗；OAuth→OpenCode 设备码）。</summary>
     public event Action<LoginKind>? LoginRequired;
 
@@ -70,6 +73,7 @@ public sealed class PageEngine : IDisposable
     /// <summary>切换活动页：立即持久化 ActivePageId，并触发一次快速刷新。</summary>
     public void SetActivePage(string? pageId, bool persist = true)
     {
+        var previousId = _activeId;
         _activeId = pageId;
         if (persist)
             _settingsStore.SaveActivePage(pageId);
@@ -80,6 +84,7 @@ public sealed class PageEngine : IDisposable
             _state.SetPageState(false, "");
             _state.ClearRuntime();
             StateChanged?.Invoke();
+            if (previousId != pageId) ActivePageChanged?.Invoke(pageId);
             return;
         }
         _state.SetPageState(true, page.Name);
@@ -101,6 +106,7 @@ public sealed class PageEngine : IDisposable
         }
         _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
         StateChanged?.Invoke();
+        if (previousId != pageId) ActivePageChanged?.Invoke(pageId);
     }
 
     public void SwitchToNext()
@@ -108,6 +114,19 @@ public sealed class PageEngine : IDisposable
         if (_pages.Count == 0) return;
         var idx = _pages.FindIndex(p => p.Id == _activeId);
         SetActivePage(_pages[(idx + 1) % _pages.Count].Id);
+    }
+
+    /// <summary>
+    /// 激活页候选链中是否存在等待 OAuth 会话的候选（如 opencode.allowance.oauth）。
+    /// 这类候选的凭据需求在方法级，与页面 API Key 无关：页面凭据已配置不代表无需登录。
+    /// </summary>
+    public bool ActivePageNeedsOAuthLogin()
+    {
+        var page = ActivePage;
+        if (page is null || !_coordinator.TryGetScanReport(page.Id, out var report)) return false;
+        return report.Candidates.Any(c =>
+            c.Status == CandidateStatus.AuthRequired
+            && c.Method.CredentialClass == CredentialClass.OAuthSession);
     }
 
     /// <summary>手动强制刷新（重新扫描全部页面）。</summary>
@@ -149,7 +168,7 @@ public sealed class PageEngine : IDisposable
         {
             try { await PollAllAsync(ct, manual: false); }
             catch (Exception ex) { Logger.LogException("page engine poll", ex); }
-            try { await Task.Delay(TimeSpan.FromMinutes(Math.Max(10, _settings.PollIntervalMinutes)), ct); }
+            try { await Task.Delay(TimeSpan.FromMinutes(Math.Max(1, _settings.PollIntervalMinutes)), ct); }
             catch (OperationCanceledException) { break; }
         }
     }

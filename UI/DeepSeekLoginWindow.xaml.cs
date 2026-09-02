@@ -63,6 +63,9 @@ public partial class DeepSeekLoginWindow : Window
         catch (Exception ex)
         {
             Logger.LogException("webview2 init", ex);
+            // 初始化失败时窗口会是一片空白：在窗内给出可见原因（常见为缺 WebView2 Runtime）
+            InitHintText.Text = $"WebView2 初始化失败：{ex.Message}\n请安装 Microsoft Edge WebView2 Runtime 后重试。";
+            InitHintText.Visibility = Visibility.Visible;
             return false;
         }
     }
