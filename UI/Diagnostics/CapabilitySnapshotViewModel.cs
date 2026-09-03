@@ -20,6 +20,9 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
     public bool HasReportedUsage => ReportedUsagePresent;
     public bool HasReportedCosts => ReportedCostRows.Count > 0;
     public bool HasBalance => !string.IsNullOrEmpty(BalanceLabel);
+
+    /// <summary>窗口区块（窗口行 + 余额栏）整体可见性：有任一窗口或余额即显示。</summary>
+    public bool HasWindowsOrBalance => HasWindows || HasBalance;
     public bool HasProbeMessage => !string.IsNullOrEmpty(StatusMessage);
 
     public string ReportedUsageLabel { get; private set; } = "";
@@ -113,7 +116,8 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
 
         Notify(nameof(HasWindows), nameof(HasReportedUsage), nameof(HasReportedCosts), nameof(HasBalance), nameof(HasProbeMessage),
             nameof(HasCapabilities), nameof(ReportedUsageLabel), nameof(BalanceLabel), nameof(StatusLabel),
-            nameof(TotalCostLabel), nameof(ReportedUsagePresent), nameof(StatusMessage), nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly));
+            nameof(TotalCostLabel), nameof(ReportedUsagePresent), nameof(StatusMessage), nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly),
+            nameof(HasWindowsOrBalance));
     }
 
     public void Reset()
@@ -126,7 +130,7 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
         Notify(nameof(HasWindows), nameof(HasReportedUsage), nameof(HasReportedCosts), nameof(HasBalance), nameof(HasCapabilities),
             nameof(HasProbeMessage), nameof(ReportedUsageLabel), nameof(TotalTokens), nameof(BalanceLabel),
             nameof(StatusMessage), nameof(StatusLabel), nameof(TotalCostLabel), nameof(ReportedUsagePresent),
-            nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly));
+            nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly), nameof(HasWindowsOrBalance));
     }
 
     public static string FormatTokens(long tokens)

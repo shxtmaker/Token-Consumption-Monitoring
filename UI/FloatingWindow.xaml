@@ -36,8 +36,8 @@
                            VerticalAlignment="Center" Margin="6,0,6,0"/>
             </DockPanel>
 
-            <!-- 窗口能力：按快照动态列出（名称与数量来自快照，不预设 5h/周/月） -->
-            <StackPanel Visibility="{Binding Snapshot.HasWindows, Converter={StaticResource BoolVis}}">
+            <!-- 窗口能力：按快照动态列出（名称与数量来自快照，不预设 5h/周/月）；余额栏紧随窗口行 -->
+            <StackPanel Visibility="{Binding Snapshot.HasWindowsOrBalance, Converter={StaticResource BoolVis}}">
                 <ItemsControl ItemsSource="{Binding Snapshot.Windows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -59,6 +59,9 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <!-- 余额/额度：紧随窗口行（周窗口下），无语义区分窗口来源 -->
+                <TextBlock Text="{Binding Snapshot.BalanceLabel}" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
+                           Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,2,0,0"/>
             </StackPanel>
 
             <!-- 报告用量：总量 + 金额 + 模型行 -->
@@ -85,10 +88,6 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
-
-            <!-- 余额/额度 -->
-            <TextBlock Text="{Binding Snapshot.BalanceLabel}" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
-                       Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,4,0,0"/>
 
             <!-- 状态条：连接正常但无用量 / 需要鉴权 / 数据过期 / 暂无数据 -->
             <TextBlock Text="{Binding Snapshot.StatusLabel}" Foreground="#9A9A9A" FontSize="11"
