@@ -21,9 +21,9 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         MethodSupport.ImplementationVersion);
 
     private const string Provider = "commandcode";
-    private readonly CommandCodeUsageClient _client;
+    private readonly ICommandCodeUsageClient _client;
 
-    public CommandCodeAllowanceWindowMethod(CommandCodeUsageClient client) => _client = client;
+    public CommandCodeAllowanceWindowMethod(ICommandCodeUsageClient client) => _client = client;
 
     public QueryMethodDescriptor Describe() => Descriptor;
 
@@ -84,14 +84,22 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
                 DateTimeOffset.UtcNow);
 
         var usage = await _client.FetchUsageAsync(key, ct);
-        var capabilities = new List<CapabilityValue>();
         var scope = candidate.CredentialScope ?? new CredentialScope(CredentialClass.ApiKey, Provider);
         var source = candidate.Source ?? new SourceIdentity(Provider, "api-key", Descriptor.MethodId, "https://api.commandcode.ai/alpha");
         if (usage is null)
             return MethodQueryResult.Empty(SnapshotStatus.TemporaryFailure, "Command Code 无用量数据");
 
+        return BuildResult(usage, scope, source);
+    }
+
+    /// <summary>用量数据 → 能力列表：5h/周窗口 + 月度剩余 credits（余额能力）。</summary>
+    internal static MethodQueryResult BuildResult(CommandCodeUsageClient.AccountUsage usage,
+        CredentialScope scope, SourceIdentity source)
+    {
+        var capabilities = new List<CapabilityValue>();
         AddWindow(capabilities, usage.Credits?.Limits?.FiveHour, "commandcode.fiveHour", "5h 窗口", scope, source);
         AddWindow(capabilities, usage.Credits?.Limits?.Weekly, "commandcode.weekly", "周窗口", scope, source);
+        AddMonthlyBalance(capabilities, usage.Credits?.MonthlyRemaining, scope, source);
 
         return new MethodQueryResult(capabilities,
             capabilities.Count > 0 ? SnapshotStatus.Success : SnapshotStatus.NoData,
@@ -109,6 +117,18 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
             WindowKey: key, WindowName: name, Status: "正常",
             Used: w.UsedMicroCents, Limit: w.LimitMicroCents, Remaining: w.RemainingMicroCents,
             Percent: w.Percent, ResetsAt: w.ResetAt, Unit: "microCents"));
+    }
+
+    /// <summary>月度剩余 credits：服务端只有剩余值（无上限/已用），按余额能力展示，不告警、不推导月度百分比。</summary>
+    private static void AddMonthlyBalance(List<CapabilityValue> list, double? monthlyRemaining,
+        CredentialScope scope, SourceIdentity source)
+    {
+        if (monthlyRemaining is not { } remaining) return;
+        list.Add(new BalanceQuotaValue(
+            CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, DateTimeOffset.UtcNow,
+            Confidence: 1.0, IsPrivate: true, IsEstimated: false,
+            Balance: (decimal)remaining, Used: null, Limit: null, Remaining: null,
+            Currency: "USD", Unit: "credits", ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(15)));
     }
 
     /// <summary>key 优先级：页面凭据 → 本地 CLI 登录 apiKey（本地凭据发现，不复制到页面配置）。</summary>

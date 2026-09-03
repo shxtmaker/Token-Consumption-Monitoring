@@ -11,12 +11,19 @@ public sealed class CommandCodeAuthException : QueryTransportException
     public CommandCodeAuthException(string message) : base(CandidateStatus.AuthRequired, message, 401) { }
 }
 
+/// <summary>查询方法对 Command Code 控制面的依赖面（测试可替换）。</summary>
+public interface ICommandCodeUsageClient
+{
+    Task<string?> FetchOrgIdAsync(string apiKey, CancellationToken ct);
+    Task<CommandCodeUsageClient.AccountUsage?> FetchUsageAsync(string apiKey, CancellationToken ct);
+}
+
 /// <summary>
 /// Command Code /alpha 控制面客户端。
 /// 只消费服务端直接返回的 used、limit、remaining、reset 字段，
 /// 不根据套餐名或硬编码额度推导账务状态。
 /// </summary>
-public sealed class CommandCodeUsageClient
+public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
 {
     public const string ApiBase = "https://api.commandcode.ai";
 
@@ -43,7 +50,10 @@ public sealed class CommandCodeUsageClient
 
     public sealed record WindowLimits(bool Limited, WindowLimit? FiveHour, WindowLimit? Weekly);
 
-    public sealed record Credits(WindowLimits? Limits);
+    public sealed record Credits(WindowLimits? Limits, double? MonthlyRemaining)
+    {
+        public long? MonthlyRemainingMicroCents => MonthlyRemaining is { } remaining ? Money.ToMicroCents(remaining) : null;
+    }
 
     public sealed record SubscriptionData(string? Status, DateTimeOffset? CurrentPeriodStart, DateTimeOffset? CurrentPeriodEnd);
 
@@ -100,7 +110,8 @@ public sealed class CommandCodeUsageClient
         var root = doc.RootElement;
         if (!root.TryGetProperty("credits", out var credits) || credits.ValueKind != JsonValueKind.Object)
             return null;
-        return new Credits(ParseWindowLimits(root));
+        // monthlyCredits 是服务端直接返回的月度剩余（随用量递减），非月度总额；上限/已用无接口提供。
+        return new Credits(ParseWindowLimits(root), Dbl(credits, "monthlyCredits"));
     }
 
     private static SubscriptionData? ParseSubscriptionBody(string body)
