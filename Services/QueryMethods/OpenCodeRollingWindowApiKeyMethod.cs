@@ -58,7 +58,7 @@ public sealed class OpenCodeRollingWindowApiKeyMethod : IQueryMethod
         catch (QueryTransportException ex)
         {
             return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message,
-                evidence: new[] { DetectionEvidence.Http(ex.HttpStatus ?? 0, ex.Message) });
+                evidence: new[] { DetectionEvidence.Http(ex.HttpStatus ?? 0, ex.Message) }) with { Failure = new FailureInfo(ex.Status, ex.Message, DateTimeOffset.UtcNow, RetryAt: ex.RetryAt) };
         }
         catch (InvalidOperationException ex)
         {

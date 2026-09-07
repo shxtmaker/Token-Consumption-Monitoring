@@ -1,4 +1,4 @@
-using TokenConsumptionMonitoring.Services;
+
 
 namespace TokenConsumptionMonitoring.Models;
 
@@ -31,7 +31,7 @@ public sealed class Page
     public int SortOrder { get; set; }
 
     /// <summary>凭据管理器 target（DeepSeekConsole 页面无 key）。</summary>
-    public string KeyTarget => Services.AppIdentity.ApiKeyTarget(Id);
+    public string KeyTarget => AppIdentity.ApiKeyTarget(Id);
 
     /// <summary>是否已配置 key（控制台会话协议无需 key）。</summary>
     public bool NeedsKey => Protocol != KeyFormat.Protocol.DeepSeekConsole;

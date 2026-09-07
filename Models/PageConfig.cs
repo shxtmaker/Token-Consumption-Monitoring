@@ -1,5 +1,5 @@
 using TokenConsumptionMonitoring.Models.Usage;
-using TokenConsumptionMonitoring.Services;
+
 
 namespace TokenConsumptionMonitoring.Models;
 
@@ -20,6 +20,13 @@ public sealed class DeprecatedPageSettings
 /// </summary>
 public sealed class PageConfigRecord
 {
+    /// <summary>进程内目录修订号，不属于持久化配置格式。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long Revision { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SessionGeneration { get; set; } = "";
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
     /// <summary>页面名称（= 小组件名称）。</summary>

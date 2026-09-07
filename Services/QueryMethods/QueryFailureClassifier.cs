@@ -40,7 +40,8 @@ public static class QueryFailureClassifier
         CandidateStatus.NetworkFailure => SnapshotStatus.TemporaryFailure,
         CandidateStatus.SchemaMismatch => SnapshotStatus.SchemaMismatch,
         CandidateStatus.Stale => SnapshotStatus.Stale,
-        CandidateStatus.Unsupported or CandidateStatus.NoReliableUsage or CandidateStatus.RequiresSelection
+        CandidateStatus.NoReliableUsage => SnapshotStatus.NoData,
+        CandidateStatus.Unsupported or CandidateStatus.RequiresSelection
             => SnapshotStatus.PermanentFailure,
         _ => SnapshotStatus.NoData,
     };
@@ -51,11 +52,20 @@ public class QueryTransportException : Exception
 {
     public CandidateStatus Status { get; }
     public int? HttpStatus { get; }
+    public DateTimeOffset? RetryAt { get; }
 
-    public QueryTransportException(CandidateStatus status, string message, int? httpStatus = null, Exception? inner = null)
+    public static DateTimeOffset? ReadRetryAt(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+        return header?.Date ?? (header?.Delta is { } delay ? DateTimeOffset.UtcNow + delay : null);
+    }
+
+    public QueryTransportException(CandidateStatus status, string message, int? httpStatus = null, Exception? inner = null,
+        DateTimeOffset? retryAt = null)
         : base(message, inner)
     {
         Status = status;
         HttpStatus = httpStatus;
+        RetryAt = retryAt;
     }
 }

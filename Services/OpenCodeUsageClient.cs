@@ -35,7 +35,7 @@ public sealed class OpenCodeUsageClient
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
         using var response = await _http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
-            throw TransportError(response.StatusCode, "usage");
+            throw TransportError(response, "usage");
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var u = doc.RootElement.GetProperty("usage");
         return (Parse(u, "rolling"), Parse(u, "weekly"), Parse(u, "monthly"));
@@ -62,7 +62,7 @@ public sealed class OpenCodeUsageClient
         if (!string.IsNullOrEmpty(orgId)) request.Headers.Add("x-org-id", orgId);
         using var response = await _http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
-            throw TransportError(response.StatusCode, "go/status");
+            throw TransportError(response, "go/status");
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var meters = new List<GoMeter>();
@@ -128,12 +128,13 @@ public sealed class OpenCodeUsageClient
         if (!string.IsNullOrEmpty(orgId)) request.Headers.Add("x-org-id", orgId);
         using var response = await _http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
-            throw TransportError(response.StatusCode, path);
+            throw TransportError(response, path);
         return await response.Content.ReadAsStringAsync(ct);
     }
 
-    private static QueryTransportException TransportError(System.Net.HttpStatusCode status, string endpoint)
+    private static QueryTransportException TransportError(HttpResponseMessage response, string endpoint)
     {
+        var status = response.StatusCode;
         var candidateStatus = status switch
         {
             System.Net.HttpStatusCode.Unauthorized => CandidateStatus.AuthRequired,
@@ -143,7 +144,7 @@ public sealed class OpenCodeUsageClient
             _ => CandidateStatus.SchemaMismatch,
         };
         return new QueryTransportException(candidateStatus,
-            $"OpenCode {endpoint} HTTP {(int)status}", (int)status);
+            $"OpenCode {endpoint} HTTP {(int)status}", (int)status, retryAt: QueryTransportException.ReadRetryAt(response));
     }
 
     private static string? GetString(JsonElement e, string name)

@@ -1,4 +1,4 @@
-using TokenConsumptionMonitoring.Services;
+
 
 namespace TokenConsumptionMonitoring.Models.Usage;
 
@@ -107,7 +107,8 @@ public sealed record FailureInfo(
     CandidateStatus Status,
     string Reason,
     DateTimeOffset At,
-    string? Detail = null);
+    string? Detail = null,
+    DateTimeOffset? RetryAt = null);
 
 /// <summary>候选：扫描阶段对某个查询方法的识别结果，尚未成为当前方法。</summary>
 public sealed record MethodCandidate(
@@ -135,7 +136,7 @@ public sealed record CredentialReference(CredentialRefKind Kind, string? Target 
     public static CredentialReference ApiKeyTarget(string target) => new(CredentialRefKind.ApiKeyTarget, target);
 
     /// <summary>全局 OAuth 会话（opencode OAuthTokens）。</summary>
-    public static CredentialReference GlobalOAuth { get; } = new(CredentialRefKind.GlobalOAuth, CredentialStore.OAuthTarget);
+    public static CredentialReference GlobalOAuth { get; } = new(CredentialRefKind.GlobalOAuth, AppIdentity.OAuthTarget);
 
     public static CredentialReference GlobalConsoleSession(string target) =>
         new(CredentialRefKind.GlobalConsoleSession, target);

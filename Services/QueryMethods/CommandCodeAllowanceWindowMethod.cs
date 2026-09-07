@@ -59,7 +59,7 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         }
         catch (QueryTransportException ex)
         {
-            return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message);
+            return MethodSupport.NotAvailable(Descriptor, ex.Status, ex.Message) with { Failure = new FailureInfo(ex.Status, ex.Message, DateTimeOffset.UtcNow, RetryAt: ex.RetryAt) };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {

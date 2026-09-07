@@ -50,7 +50,8 @@ public sealed class EndpointProbeMethod : IQueryMethod
 
         var result = await ProbeWithModelsAsync(page, context.Credentials.ReadApiKey(), ct);
         if (!result.Ok)
-            return MethodSupport.NotAvailable(Descriptor, result.Status, result.Error, 0, evidence.ToArray());
+            return MethodSupport.NotAvailable(Descriptor, result.Status, result.Error, 0, evidence.ToArray())
+                with { Failure = new FailureInfo(result.Status, result.Error, DateTimeOffset.UtcNow, RetryAt: result.RetryAt) };
 
         evidence.Add(DetectionEvidence.Field("/models"));
         return MethodSupport.Available(Descriptor, context.Credentials.Scope, Coverage.Unknown, evidence,
@@ -77,7 +78,7 @@ public sealed class EndpointProbeMethod : IQueryMethod
         return new MethodQueryResult(
             new CapabilityValue[] { value },
             result.Ok ? SnapshotStatus.ProbeOnly : QueryFailureClassifier.SnapshotStatusOf(result.Status),
-            result.Ok ? null : new FailureInfo(result.Status, result.Error, DateTimeOffset.UtcNow),
+            result.Ok ? null : new FailureInfo(result.Status, result.Error, DateTimeOffset.UtcNow, RetryAt: result.RetryAt),
             value.FetchedAt);
     }
 
@@ -103,7 +104,8 @@ public sealed class EndpointProbeMethod : IQueryMethod
                     _ when (int)response.StatusCode >= 500 => CandidateStatus.NetworkFailure,
                     _ => CandidateStatus.SchemaMismatch,
                 };
-                return new ProbeResult(false, status, $"HTTP {(int)response.StatusCode}", false, models);
+                return new ProbeResult(false, status, $"HTTP {(int)response.StatusCode}", false, models,
+                    QueryTransportException.ReadRetryAt(response));
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -181,5 +183,6 @@ public sealed class EndpointProbeMethod : IQueryMethod
         CandidateStatus Status,
         string Error,
         bool Authenticated,
-        IReadOnlyList<string> Models);
+        IReadOnlyList<string> Models,
+        DateTimeOffset? RetryAt = null);
 }

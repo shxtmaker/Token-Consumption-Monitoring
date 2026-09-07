@@ -1,4 +1,4 @@
-namespace TokenConsumptionMonitoring.Services;
+namespace TokenConsumptionMonitoring.Models;
 
 /// <summary>
 /// API 协议与 key 格式：支持三大 API 协议。

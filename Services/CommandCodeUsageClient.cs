@@ -172,7 +172,7 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
             };
             if (status == CandidateStatus.AuthRequired)
                 throw new CommandCodeAuthException("Command Code HTTP 401（key 无效）");
-            throw new QueryTransportException(status, $"Command Code HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+            throw new QueryTransportException(status, $"Command Code HTTP {(int)response.StatusCode}", (int)response.StatusCode, retryAt: QueryTransportException.ReadRetryAt(response));
         }
 
         using var doc = JsonDocument.Parse(body);

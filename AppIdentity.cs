@@ -1,4 +1,4 @@
-namespace TokenConsumptionMonitoring.Services;
+namespace TokenConsumptionMonitoring;
 
 /// <summary>TokenConsumptionMonitoring 的正式产品标识集合。</summary>
 /// <remarks>

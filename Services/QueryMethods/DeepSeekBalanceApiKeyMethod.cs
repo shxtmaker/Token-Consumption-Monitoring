@@ -37,9 +37,9 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
             return MethodSupport.AuthRequired(Descriptor, "页面未配置 DeepSeek API key",
                 DetectionEvidence.Auth("需要 Bearer API key"));
 
-        var (status, reason, _) = await ProbeBalanceAsync(page, ct);
+        var (status, reason, _, retryAt) = await ProbeBalanceAsync(page, ct);
         if (status != CandidateStatus.Available)
-            return MethodSupport.NotAvailable(Descriptor, status, reason, evidence: new[] { DetectionEvidence.Field("/user/balance") });
+            return MethodSupport.NotAvailable(Descriptor, status, reason, evidence: new[] { DetectionEvidence.Field("/user/balance") }) with { Failure = new FailureInfo(status, reason, DateTimeOffset.UtcNow, RetryAt: retryAt) };
 
         return MethodSupport.Available(Descriptor, context.Credentials.Scope, Coverage.Unknown,
             new[] { DetectionEvidence.Field("/user/balance.balance_infos[0].total_balance") },
@@ -67,23 +67,23 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
         catch (QueryTransportException ex)
         {
             return MethodQueryResult.Empty(QueryFailureClassifier.SnapshotStatusOf(ex.Status), ex.Message)
-                with { Failure = new FailureInfo(ex.Status, ex.Message, DateTimeOffset.UtcNow) };
+                with { Failure = new FailureInfo(ex.Status, ex.Message, DateTimeOffset.UtcNow, RetryAt: ex.RetryAt) };
         }
     }
 
-    private async Task<(CandidateStatus Status, string Reason, decimal? Balance)> ProbeBalanceAsync(PageConfigRecord page, CancellationToken ct)
+    private async Task<(CandidateStatus Status, string Reason, decimal? Balance, DateTimeOffset? RetryAt)> ProbeBalanceAsync(PageConfigRecord page, CancellationToken ct)
     {
         try
         {
             var (balance, currency) = await FetchBalanceAsync(page, ct);
             _ = currency;
             return balance is null
-                ? (CandidateStatus.SchemaMismatch, "余额接口未返回 total_balance", null)
-                : (CandidateStatus.Available, "", balance);
+                ? (CandidateStatus.SchemaMismatch, "余额接口未返回 total_balance", null, null)
+                : (CandidateStatus.Available, "", balance, null);
         }
         catch (QueryTransportException ex)
         {
-            return (ex.Status, ex.Message, null);
+            return (ex.Status, ex.Message, null, ex.RetryAt);
         }
     }
 
@@ -107,7 +107,7 @@ public sealed class DeepSeekBalanceApiKeyMethod : IQueryMethod
                     _ when (int)response.StatusCode >= 500 => CandidateStatus.NetworkFailure,
                     _ => CandidateStatus.SchemaMismatch,
                 };
-                throw new QueryTransportException(status, $"DeepSeek balance HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+                throw new QueryTransportException(status, $"DeepSeek balance HTTP {(int)response.StatusCode}", (int)response.StatusCode, retryAt: QueryTransportException.ReadRetryAt(response));
             }
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
             if (!doc.RootElement.TryGetProperty("balance_infos", out var arr) || arr.ValueKind != JsonValueKind.Array)
