@@ -139,13 +139,18 @@
             <Border x:Name="CandidateDiagnosticsPanel" Grid.Column="1" Grid.Row="0" Margin="0,0,6,0" CornerRadius="8" Background="#1F2329"
                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10">
                 <StackPanel>
-                    <DockPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
                         <TextBlock Text="候选方法链" Foreground="#EEF1F5" FontSize="13" FontWeight="SemiBold"/>
-                        <TextBlock DockPanel.Dock="Right" Text="{Binding Diagnostics.CandidateCountLabel}"
-                                   Foreground="#8A8F98" FontSize="11"/>
-                    </DockPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding Diagnostics.CandidateCountLabel}"
+                                   Foreground="#8A8F98" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </Grid>
                     <TextBlock Text="候选并列时可点击「使用此方法」临时覆盖自动选择（仅运行时生效，重扫后恢复）。"
-                               Foreground="#8A8F98" FontSize="10" Margin="0,6,0,4" TextWrapping="Wrap"/>
+                               Foreground="#8A8F98" FontSize="10" Margin="0,6,0,4" TextWrapping="Wrap"
+                               LineHeight="16" LineStackingStrategy="BlockLineHeight"/>
                     <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding Diagnostics.Candidates}">
                             <ItemsControl.ItemTemplate>
@@ -154,12 +159,12 @@
                                             BorderThickness="1" Margin="0,3,0,3" Padding="8,6">
                                         <StackPanel>
                                             <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding StabilityLabel}"
+                                                           Foreground="#8FAFDB" FontSize="10" Margin="8,0,0,0"/>
                                                 <TextBlock Text="●" Foreground="{Binding StatusColorHex}" FontSize="11"
                                                            Margin="0,0,6,0" VerticalAlignment="Center"/>
                                                 <TextBlock Text="{Binding MethodId}" Foreground="#EEF1F5" FontSize="11"
-                                                           FontWeight="SemiBold" FontFamily="Consolas"/>
-                                                <TextBlock DockPanel.Dock="Right" Text="{Binding StabilityLabel}"
-                                                           Foreground="#8FAFDB" FontSize="10" Margin="8,0,0,0"/>
+                                                           FontWeight="SemiBold" FontFamily="Consolas" TextWrapping="Wrap"/>
                                             </DockPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                                 <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusColorHex}" FontSize="11"/>
