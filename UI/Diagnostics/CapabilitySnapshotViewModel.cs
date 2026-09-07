@@ -41,6 +41,7 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
     /// <summary>整体状态文字（连接正常但无用量 / 需要鉴权 / 数据过期 / 无数据）。</summary>
     public string StatusLabel { get; private set; } = "暂无数据";
 
+    /// <summary>更新能力投影。showDailyUsage = 设置窗「token消耗量」开关：关闭时隐藏线上拉取的今日用量区。</summary>
     public void Update(CapabilitySnapshot snapshot, bool showDailyUsage)
     {
         // 窗口能力：动态列出（名称与数量来自快照，不预设 5h/周/月）
@@ -55,9 +56,9 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
             Windows[i].Update(w, AlertLevel.None);
         }
 
-        // 报告用量：总量 + 模型行（仅非 probe 能力；「今日用量」关闭时隐藏 zcode 本地记录）
+        // 报告用量：总量 + 模型行（仅非 probe 能力；「token消耗量」关闭时隐藏今日用量区）
         var usage = snapshot.ReportedUsages.FirstOrDefault();
-        if (!showDailyUsage && usage?.Source.Provider == "zcode") usage = null;
+        if (!showDailyUsage) usage = null;
         ReportedUsagePresent = usage is not null;
         TotalTokens = usage?.TotalTokens ?? 0;
         ReportedUsageLabel = usage is null ? "" : FormatTokens(usage.TotalTokens);

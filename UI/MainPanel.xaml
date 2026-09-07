@@ -229,10 +229,10 @@
                                    FontWeight="SemiBold" Margin="0,4,0,0"/>
                     </StackPanel>
 
-                    <!-- 报告用量 -->
+                    <!-- 今日用量（线上拉取） -->
                     <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
                         <DockPanel>
-                            <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="今日用量" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}"
                                        Foreground="#EEF1F5" FontSize="12" FontWeight="SemiBold"/>
                         </DockPanel>

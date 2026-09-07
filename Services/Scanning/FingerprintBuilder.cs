@@ -30,7 +30,12 @@ public sealed class FingerprintBuilder
     {
     }
 
-    public string Build(PageConfigRecord page, bool localRecordsPresent, IEnumerable<string>? localSourceSignatures = null)
+    /// <summary>
+    /// 生成页面配置指纹。
+    /// 本地记录来源已整体下线：不再读取本机 zcode SQLite，指纹恒不含本机记录成分。
+    /// localRecordsPresent / localSourceSignatures 仅保留以兼容旧调用方与测试；结果不再受其影响。
+    /// </summary>
+    public string Build(PageConfigRecord page, bool localRecordsPresent = false, IEnumerable<string>? localSourceSignatures = null)
     {
         var sb = new StringBuilder();
         sb.Append(Uri.TryCreate(page.BaseUrl, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Path).TrimEnd('/') : page.BaseUrl);
@@ -38,8 +43,7 @@ public sealed class FingerprintBuilder
         sb.Append("|credential=").Append(page.CredentialRef.ResolveClass());
         sb.Append("|compat=").Append(string.Join(",", page.EnabledCompatibilityMethods.OrderBy(x => x, StringComparer.Ordinal)));
         sb.Append("|methods=").Append(string.Join(",", _methodImplementations));
-        var localSignatures = localSourceSignatures?.OrderBy(x => x, StringComparer.Ordinal).ToList()
-            ?? (localRecordsPresent ? new List<string> { "zcode.schema.v1|~/.zcode/cli/db/db.sqlite" } : new List<string>());
+        var localSignatures = localSourceSignatures?.OrderBy(x => x, StringComparer.Ordinal).ToList() ?? new List<string>();
         sb.Append("|local=").Append(string.Join(",", localSignatures));
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(bytes).ToLowerInvariant()[..24];

@@ -13,7 +13,7 @@ public partial class SettingsWindow : Window
 
     /// <summary>桌面组件（悬浮窗）开关被切换，即时生效。</summary>
     public event Action<bool>? FloatingWidgetToggleRequested;
-    /// <summary>token 消耗量显示开关被切换，即时生效。</summary>
+    /// <summary>今日用量显示开关被切换，即时生效。</summary>
     public event Action<bool>? DailyUsageToggleRequested;
     /// <summary>桌面组件透明度变化（百分比，即时生效）。</summary>
     public event Action<int>? OpacityChangeRequested;
@@ -67,7 +67,7 @@ public partial class SettingsWindow : Window
         FloatingWidgetToggleRequested?.Invoke(on);
     }
 
-    /// <summary>token 消耗量开关：即时显隐今日用量区并持久化（不受保存/取消影响）。</summary>
+    /// <summary>今日用量开关：即时显隐线上今日用量区并持久化（不受保存/取消影响）。</summary>
     private void DailyTokensBox_Changed(object sender, RoutedEventArgs e)
     {
         if (!_initialized) return;

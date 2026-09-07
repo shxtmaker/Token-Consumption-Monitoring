@@ -51,6 +51,14 @@ public partial class App : System.Windows.Application
         _mutex = new Mutex(true, AppIdentity.MutexName, out var createdNew);
         if (!createdNew) { Shutdown(); return; }
 
+        // 启动清扫：旧版遗留的 zcode 临时副本（%TEMP%\TokenConsumptionMonitoring\zcode_*.sqlite*）。
+        // 线上化后不再产生新的本地库副本；残留后台清理（删除失败记日志并短重试，不拖慢启动、不阻断功能）。
+        _ = Task.Run(() =>
+        {
+            try { new TempFileJanitor().CleanupLegacyZcodeCopies(); }
+            catch (Exception ex) { Services.Logger.LogException("temp janitor startup", ex); }
+        });
+
         var settingsStore = new SettingsStore();
         _settingsStoreField = settingsStore;
         _settings = settingsStore.Load();
@@ -76,13 +84,12 @@ public partial class App : System.Windows.Application
         _dsLoginWindow.Show();
         _dsLoginWindow.Hide();
         var deepSeekUsage = new DeepSeekUsageClient(_deepSeekSession);
-        var zcode = new ZCodeUsageService();
         var commandCode = new CommandCodeUsageClient();
 
         // 统一方法注册表 + 运行时协调器（扫描/选择/回退/缓存）
-        var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, zcode, commandCode);
+        var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, commandCode);
         var fingerprints = new FingerprintBuilder(registry.Descriptors);
-        var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache(), zcode);
+        var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache());
 
         // 页面配置：版本化 envelope；结构迁移可写回，恢复态保持只读
         var pageStore = new PageConfigStore();

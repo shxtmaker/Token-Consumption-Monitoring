@@ -49,8 +49,8 @@ PageRuntimeStateStore                    CapabilitySnapshot
 
 - `endpoint.probe`：通用连接、鉴权和模型目录探测，不产生用量结论。
 - `deepseek.balance.api-key`：DeepSeek 官方余额。
-- `local.zcode.usage`：本机 ZCode SQLite 记录，本地回退来源。
-- `deepseek.console-usage.compat`：DeepSeek 控制台会话用量，需页面显式启用。
+- `deepseek.console-usage.online`：DeepSeek 控制台会话今日用量（线上拉取，官方账号页面常开来源）。
+- `deepseek.console-usage.compat`：DeepSeek 控制台会话用量（私有兼容，需显式启用；与新线上方法能力重叠时按来源稳定性让位）。
 - `opencode.rolling-window.api-key`：OpenCode Go 窗口数据，需页面显式启用。
 - `opencode.allowance.oauth`：OpenCode OAuth 窗口额度，需页面显式启用。
 - `commandcode.allowance-window.compat`：Command Code 窗口额度，需页面显式启用。

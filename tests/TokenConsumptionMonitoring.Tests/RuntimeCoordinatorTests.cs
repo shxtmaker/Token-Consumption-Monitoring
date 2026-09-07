@@ -103,8 +103,7 @@ public sealed class RuntimeCoordinatorTests
             new QueryMethodRegistry(methods),
             new FingerprintBuilder(descriptors),
             stateStore,
-            cache,
-            new ZCodeUsageService());
+            cache);
         return (coordinator, cache, stateStore, directory);
     }
 
@@ -284,6 +283,23 @@ public sealed class RuntimeCoordinatorTests
             Assert.Equal(SnapshotStatus.AuthRequired, result.Snapshot.Status);
             Assert.NotNull(result.Failure);
             Assert.Equal(CredentialClass.OAuthSession, result.AuthCredentialClass);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task LocalFallbackSource_IsNotSelectedWhenNoOnlineUsageAvailable()
+    {
+        // 线上化改造后本地记录来源不再注册/参与；ReportedUsage 无任何可用候选时应为空用量、不误报成功。
+        var usageDescriptor = Descriptor("usage", CapabilityKind.ReportedUsage, SourceKind.RemoteOfficialStats);
+        var usage = new StubMethod(usageDescriptor, _ => Failure(CandidateStatus.NoReliableUsage));
+        var runtime = NewCoordinator(usage);
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            Assert.Empty(result.Snapshot.ReportedUsages);
+            Assert.Equal(SnapshotStatus.NoData, result.Snapshot.Status);
+            Assert.Equal(1, usage.QueryCalls);
         }
         finally { Directory.Delete(runtime.Directory, recursive: true); }
     }

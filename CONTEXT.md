@@ -24,8 +24,8 @@ _Avoid_: 账号、标签页
 系统登录时自动启动本应用的设置项。
 
 **今日用量**:
-zcode CLI 本地记录统计出的当日 token 消耗（全口径 = 含缓存读取），按 API key 归属到对应页面后在桌面组件展示，可分模型拆分。
+线上（DeepSeek 控制台会话）拉取的当日 token 消耗（全口径 = 含缓存读取），按模型拆分，在桌面组件展示。
 _Avoid_: 日消耗、今日 token
 
-**zcode 本地数据**:
-zcode CLI 在本机的会话与用量存储（model-io 记录与 provider 配置），是今日用量的唯一数据源；区别于远程官方接口。
+**线上用量**:
+今日用量的唯一数据源（platform.deepseek.com 控制台 /api/v0/usage/by_api_key 私有接口，经登录会话拉取）；不再读取本机 zcode SQLite。

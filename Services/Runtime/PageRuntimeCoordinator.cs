@@ -19,7 +19,6 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
     private readonly FingerprintBuilder _fingerprints;
     private readonly MethodStateStore _stateStore;
     private readonly MethodResultCache _cache;
-    private readonly ZCodeUsageService _zcode;
     private readonly PageRuntimeStateStore _runtimeState;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _pageLocks = new();
     private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
@@ -29,14 +28,12 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
         FingerprintBuilder fingerprints,
         MethodStateStore stateStore,
         MethodResultCache cache,
-        ZCodeUsageService zcode,
         PageRuntimeStateStore? runtimeState = null)
     {
         _registry = registry;
         _fingerprints = fingerprints;
         _stateStore = stateStore;
         _cache = cache;
-        _zcode = zcode;
         _runtimeState = runtimeState ?? new PageRuntimeStateStore();
     }
 
@@ -65,7 +62,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
     private async Task<PageRuntimeResult> RefreshCoreAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
-        var fingerprint = _fingerprints.Build(page, _zcode.DatabaseExists);
+        var fingerprint = _fingerprints.Build(page);
         var persisted = _stateStore.Load(page.Id);
         var runtime = _runtimeState.GetOrCreate(page.Id);
         var configurationChanged = runtime.Fingerprint is not null && runtime.Fingerprint != fingerprint;
@@ -102,7 +99,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
     {
         // 重扫代表重新确认来源，之前的人工覆盖必须失效。
         _runtimeState.ClearTemporaryOverride(page.Id);
-        var fingerprint = _fingerprints.Build(page, _zcode.DatabaseExists);
+        var fingerprint = _fingerprints.Build(page);
         var context = new ScanContext
         {
             Page = page,

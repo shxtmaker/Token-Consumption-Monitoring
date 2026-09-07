@@ -29,18 +29,17 @@ public sealed class QueryMethodRegistry
         OpenCodeAuthService openCodeAuth,
         DeepSeekSessionService deepSeekSession,
         DeepSeekUsageClient deepSeekUsage,
-        ZCodeUsageService zcode,
         CommandCodeUsageClient commandCode)
     {
         var methods = new List<IQueryMethod>
         {
             new EndpointProbeMethod(openCodeAuth, deepSeekSession),
+            new DeepSeekConsoleUsageOnlineMethod(deepSeekSession, deepSeekUsage),
             new OpenCodeRollingWindowApiKeyMethod(opencode),
             new OpenCodeAllowanceOAuthMethod(opencode, openCodeAuth),
             new DeepSeekBalanceApiKeyMethod(),
             new CommandCodeAllowanceWindowMethod(commandCode),
             new DeepSeekConsoleUsageMethod(deepSeekSession, deepSeekUsage),
-            new LocalZCodeUsageMethod(zcode),
         };
         return new QueryMethodRegistry(methods);
     }

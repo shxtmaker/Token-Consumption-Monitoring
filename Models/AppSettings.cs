@@ -15,7 +15,7 @@ public sealed class AppSettings
     /// <summary>是否显示桌面悬浮组件（设置窗「桌面组件」开关）。</summary>
     public bool ShowFloatingWidget { get; set; } = true;
 
-    /// <summary>是否在桌面组件显示今日 token 消耗（zcode 本地数据；设置窗「token消耗量」开关）。</summary>
+    /// <summary>是否在桌面组件显示今日 token 消耗（线上拉取的用量；设置窗「token消耗量」开关）。</summary>
     public bool ShowDailyTokens { get; set; } = true;
 
     /// <summary>桌面组件锁定状态（锁定=不可拖动且置顶；解锁=可拖动、可被覆盖）。</summary>

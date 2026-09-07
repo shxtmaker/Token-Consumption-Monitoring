@@ -64,10 +64,10 @@
                            Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,2,0,0"/>
             </StackPanel>
 
-            <!-- 报告用量：总量 + 金额 + 模型行 -->
+            <!-- 今日用量：总量 + 金额 + 模型行（线上拉取） -->
             <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
                 <DockPanel>
-                    <TextBlock Text="用量" Foreground="#C7CBD3" FontSize="11"/>
+                    <TextBlock Text="今日用量" Foreground="#C7CBD3" FontSize="11"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}" Foreground="#EEF1F5"
                                FontWeight="SemiBold" FontSize="12"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.TotalCostLabel}" Foreground="#7FC9A0"

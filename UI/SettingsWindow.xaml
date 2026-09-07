@@ -32,7 +32,7 @@
                 Margin="0,6,0,0" ValueChanged="OpacitySlider_Changed"
                 ToolTip="桌面组件背景不透明度：100% 为纯色黑背景，越低越淡，0% 背景全透仅剩文字/进度条（即时生效）"/>
 
-        <!-- 开机自启 + 桌面组件 + token消耗量：两个等分弹性间隔列，间隙严格相等且铺满整行 -->
+        <!-- 开机自启 + 桌面组件 + 今日用量：两个等分弹性间隔列，间隙严格相等且铺满整行 -->
         <Grid Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -46,7 +46,7 @@
             <CheckBox x:Name="WidgetBox" Grid.Column="2" Content="桌面组件" Foreground="#C7CBD3" IsChecked="True"
                       VerticalAlignment="Center"
                       Checked="WidgetBox_Changed" Unchecked="WidgetBox_Changed"/>
-            <CheckBox x:Name="DailyTokensBox" Grid.Column="4" Content="token消耗量" Foreground="#C7CBD3" IsChecked="True"
+            <CheckBox x:Name="DailyTokensBox" Grid.Column="4" Content="今日用量" Foreground="#C7CBD3" IsChecked="True"
                       VerticalAlignment="Center"
                       Checked="DailyTokensBox_Changed" Unchecked="DailyTokensBox_Changed"/>
         </Grid>
