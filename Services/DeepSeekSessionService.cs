@@ -14,7 +14,7 @@ public sealed class DeepSeekSessionService : IDisposable
 
     // CoreWebView2 只能从 UI 线程访问——所有公开异步方法封送到 UI Dispatcher 执行
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
-    private readonly ManualResetEventSlim _ready = new(false);
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CoreWebView2? _webView;
     private string? _userDataFolder;
     // 页面捕获串行锁：同一响应可能被触发多次读取，并发读同一流会互相撕裂字节
@@ -28,21 +28,24 @@ public sealed class DeepSeekSessionService : IDisposable
     public void Attach(CoreWebView2 webView)
     {
         _webView = webView;
-        _ready.Set();
+        _ready.TrySetResult();
     }
 
     public void SetUserDataFolder(string folder) => _userDataFolder = folder;
 
     private CoreWebView2 GetWebView(CancellationToken ct = default)
     {
-        _ready.Wait(ct);
-        return _webView!;
+        ct.ThrowIfCancellationRequested();
+        return _webView ?? throw new InvalidOperationException("WebView2 尚未初始化");
     }
 
     /// <summary>在页面上下文中 fetch 相对路径（封送 UI 线程）。</summary>
-    public Task<(bool Ok, string Body, bool SessionInvalid, int? HttpStatus)> FetchAsync(string relativePath, CancellationToken ct = default)
-        => _dispatcher.InvokeAsync(() => FetchAsyncCore(relativePath, cancellationToken: ct),
-            System.Windows.Threading.DispatcherPriority.Normal, ct).Task.Unwrap();
+    public async Task<(bool Ok, string Body, bool SessionInvalid, int? HttpStatus)> FetchAsync(string relativePath, CancellationToken ct = default)
+    {
+        await _ready.Task.WaitAsync(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+        return await _dispatcher.InvokeAsync(() => FetchAsyncCore(relativePath, cancellationToken: ct),
+            System.Windows.Threading.DispatcherPriority.Normal, ct).Task.Unwrap().ConfigureAwait(false);
+    }
 
     /// <summary>保存 cookie（封送 UI 线程）。</summary>
     public Task SaveCookiesAsync() => _dispatcher.InvokeAsync(() => SaveCookiesCoreAsync()).Task.Unwrap();
@@ -236,7 +239,7 @@ public sealed class DeepSeekSessionService : IDisposable
 
     public void Dispose()
     {
-        _ready.Dispose();
+        _ready.TrySetCanceled();
         _captureLock.Dispose();
     }
 
