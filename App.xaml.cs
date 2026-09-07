@@ -79,7 +79,7 @@ public partial class App : System.Windows.Application
         _dsLoginWindow.SessionReady += () =>
         {
             Services.Logger.Log("deepseek session ready");
-            _pageEngine?.RefreshNowAsync();
+            _pageEngine?.RefreshAfterSessionAsync(CredentialClass.ConsoleSession);
         };
         _dsLoginWindow.Show();
         _dsLoginWindow.Hide();
@@ -89,7 +89,7 @@ public partial class App : System.Windows.Application
         // 统一方法注册表 + 运行时协调器（扫描/选择/回退/缓存）
         var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, commandCode);
         var fingerprints = new FingerprintBuilder(registry.Descriptors);
-        var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache());
+
 
         // 页面配置：版本化 envelope；结构迁移可写回，恢复态保持只读
         var pageStore = new PageConfigStore();
@@ -107,16 +107,19 @@ public partial class App : System.Windows.Application
             if (!saveResult.Succeeded)
                 Services.Logger.Log($"pages schema 迁移写回失败：{saveResult.Diagnostic}");
         }
-        var pages = document.Pages;
+        var catalog = new PageCatalog(document.Pages);
+        var pages = catalog.Snapshot();
+        var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache(), catalog: catalog);
 
         // 页面引擎：只管理生命周期，委托 coordinator
-        _pageEngine = new PageEngine(pages, state, alerts, _tray, _settings, settingsStore, Dispatcher, coordinator);
+        _pageEngine = new PageEngine(catalog, state, alerts, _tray, _settings, settingsStore, Dispatcher, coordinator);
         _openCodeAuth.TryLoadSession();   // 恢复 opencode OAuth 会话（OAuth 方法依赖登录状态）
 
         _floating = new FloatingWindow { DataContext = state };
         _floating.SetLocked(_settings.WidgetLocked);   // 恢复锁定状态（置顶/禁拖动）
         _floating.SetBackgroundOpacity(_settings.WidgetOpacityPercent);   // 恢复背景透明度
-        _panel = new MainPanel(pageStore, pages, state);
+        _panel = new MainPanel(new PageConfigurationCommands(catalog, pageStore, new WindowsPageCredentialStore()),
+            catalog, state, loadResult.IsRecoveryRequired ? loadResult.Diagnostic : null);
 
         WireEvents();
 
@@ -191,7 +194,7 @@ public partial class App : System.Windows.Application
             if (_pageEngine is { } engine)
                 await engine.RescanById(pageId, ScanReason.Manual);
         };
-        _panel.OverrideRequested += (pageId, methodId) => _pageEngine?.SetTemporaryOverride(pageId, methodId);
+        _panel.OverrideRequested += (pageId, methodId) => _pageEngine?.SetTemporaryOverrideAsync(pageId, methodId);
 
         // 登录分发：由候选凭据类别决定（ConsoleSession→DeepSeek 登录窗；OAuth→OpenCode 设备码）
         _pageEngine!.LoginRequired += kind =>
@@ -231,12 +234,16 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private async Task LoginOpenCodeAsync()
+    private Task? _loginTask;
+    private Task LoginOpenCodeAsync()
+        => _loginTask is { IsCompleted: false } ? _loginTask : _loginTask = LoginOpenCodeCoreAsync();
+
+    private async Task LoginOpenCodeCoreAsync()
     {
         try
         {
             _tray!.Balloon("OpenCode", await _openCodeAuth!.LoginAsync(_loginCts.Token));
-            await _pageEngine!.RefreshNowAsync();   // 会话已变化：立即重扫，候选链的“需要凭据/权限”随之更新
+            await _pageEngine!.RefreshAfterSessionAsync(CredentialClass.OAuthSession);   // 会话已变化：立即重扫，候选链的“需要凭据/权限”随之更新
         }
         catch (Exception ex) { _tray!.Balloon("OpenCode 登录失败", ex.Message); }
     }
@@ -272,10 +279,15 @@ public partial class App : System.Windows.Application
         _settingsWindow.Activate();
     }
 
-    private void ExitApp()
+    private bool _exiting;
+    private async void ExitApp()
     {
+        if (_exiting) return;
+        _exiting = true;
         _countdownTimer?.Stop();
         _loginCts.Cancel();
+        if (_loginTask is not null) await _loginTask;
+        if (_pageEngine is not null) await _pageEngine.StopAsync();
         _pageEngine?.Dispose();
         _deepSeekSession?.Dispose();
         _tray?.Dispose();

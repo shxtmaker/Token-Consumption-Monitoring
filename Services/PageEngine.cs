@@ -1,3 +1,4 @@
+using TokenConsumptionMonitoring.UI;
 using System.Windows.Threading;
 using TokenConsumptionMonitoring.Models;
 using TokenConsumptionMonitoring.Models.Usage;
@@ -19,14 +20,18 @@ public enum LoginKind
 /// </summary>
 public sealed class PageEngine : IDisposable
 {
-    private readonly List<PageConfigRecord> _pages;
+    private readonly PageCatalog _catalog;
+    private List<PageConfigRecord> _pages => _catalog.Snapshot();
     private readonly MonitorState _state;
     private readonly AlertService _alerts;
-    private readonly TrayIconService _tray;
+    private readonly ITrayStatusSink _tray;
     private readonly AppSettings _settings;
     private readonly SettingsStore _settingsStore;
     private readonly Dispatcher _dispatcher;
     private readonly IPageRuntimeCoordinator _coordinator;
+    private readonly PageRefreshQueue _refreshes;
+    private readonly object _maintenanceGate = new();
+    private readonly List<Task> _maintenance = new();
 
     private readonly CancellationTokenSource _cts = new();
     private Task? _pollLoop;
@@ -46,16 +51,16 @@ public sealed class PageEngine : IDisposable
     public IReadOnlyList<PageConfigRecord> Pages => _pages;
 
     public PageEngine(
-        List<PageConfigRecord> pages,
+        PageCatalog catalog,
         MonitorState state,
         AlertService alerts,
-        TrayIconService tray,
+        ITrayStatusSink tray,
         AppSettings settings,
         SettingsStore settingsStore,
         Dispatcher dispatcher,
         IPageRuntimeCoordinator coordinator)
     {
-        _pages = pages;
+        _catalog = catalog;
         _state = state;
         _alerts = alerts;
         _tray = tray;
@@ -63,6 +68,18 @@ public sealed class PageEngine : IDisposable
         _settingsStore = settingsStore;
         _dispatcher = dispatcher;
         _coordinator = coordinator;
+        _refreshes = new PageRefreshQueue(catalog);
+        catalog.Changed += OnCatalogChanged;
+    }
+
+    private void OnCatalogChanged(string pageId)
+    {
+        if (_catalog.Snapshot().Any(page => page.Id == pageId)) return;
+        lock (_maintenanceGate)
+        {
+            _maintenance.RemoveAll(task => task.IsCompletedSuccessfully);
+            _maintenance.Add(_coordinator.RemovePageAsync(pageId));
+        }
     }
 
     public void Start()
@@ -83,6 +100,7 @@ public sealed class PageEngine : IDisposable
         {
             _state.SetPageState(false, "");
             _state.ClearRuntime();
+            _tray.SetState(_state.Connection, AlertLevel.None);
             StateChanged?.Invoke();
             if (previousId != pageId) ActivePageChanged?.Invoke(pageId);
             return;
@@ -102,6 +120,7 @@ public sealed class PageEngine : IDisposable
         else
         {
             _state.ClearRuntime();
+            _tray.SetState(_state.Connection, AlertLevel.None);
             _state.ApplyDiagnostics(page, null, null);
         }
         _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
@@ -111,9 +130,10 @@ public sealed class PageEngine : IDisposable
 
     public void SwitchToNext()
     {
-        if (_pages.Count == 0) return;
-        var idx = _pages.FindIndex(p => p.Id == _activeId);
-        SetActivePage(_pages[(idx + 1) % _pages.Count].Id);
+        var pages = _catalog.Snapshot();
+        if (pages.Count == 0) return;
+        var idx = pages.FindIndex(p => p.Id == _activeId);
+        SetActivePage(pages[(idx + 1) % pages.Count].Id);
     }
 
     /// <summary>
@@ -135,6 +155,16 @@ public sealed class PageEngine : IDisposable
         await PollAllAsync(_cts.Token, manual: true);
     }
 
+    public async Task RefreshAfterSessionAsync(CredentialClass credentialClass)
+    {
+        _catalog.InvalidateSession(page => page.CredentialRef.ResolveClass() == credentialClass
+            || credentialClass == CredentialClass.OAuthSession
+                && page.EnabledCompatibilityMethods.Contains("opencode.allowance.oauth")
+            || credentialClass == CredentialClass.ConsoleSession
+                && page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole);
+        await RefreshNowAsync();
+    }
+
     /// <summary>保存/新建/删除后调用：对该页面执行一次完整重扫。</summary>
     public async Task RescanPageAsync(PageConfigRecord page, ScanReason reason)
     {
@@ -154,11 +184,29 @@ public sealed class PageEngine : IDisposable
     }
 
     /// <summary>临时覆盖自动选择（只作用于运行时；只刷新该页）。</summary>
-    public void SetTemporaryOverride(string pageId, string? methodId)
+    public Task SetTemporaryOverrideAsync(string pageId, string? methodId)
     {
-        _coordinator.SetTemporaryOverride(pageId, methodId);
-        var page = _pages.FirstOrDefault(p => p.Id == pageId);
-        if (page is not null) _ = RefreshPageSafeAsync(page, RefreshReason.Poll);
+        lock (_maintenanceGate)
+        {
+            if (_cts.IsCancellationRequested) return Task.CompletedTask;
+            _maintenance.RemoveAll(task => task.IsCompletedSuccessfully);
+            var task = ApplyOverrideAsync(pageId, methodId);
+            _maintenance.Add(task);
+            return task;
+        }
+    }
+
+    private async Task ApplyOverrideAsync(string pageId, string? methodId)
+    {
+        try
+        {
+            await _coordinator.SetTemporaryOverrideAsync(pageId, methodId);
+            var page = _pages.FirstOrDefault(p => p.Id == pageId);
+            if (page is not null && !_cts.IsCancellationRequested)
+                await RefreshPageSafeAsync(page, RefreshReason.Poll);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Logger.LogException("set page override", ex); }
     }
 
     private async Task PollLoopAsync(CancellationToken ct)
@@ -181,8 +229,9 @@ public sealed class PageEngine : IDisposable
 
     private async Task RefreshPageSafeAsync(PageConfigRecord page, RefreshReason reason)
     {
-        try { await RefreshPageAsync(page, reason, _cts.Token); }
+        try { await _refreshes.Run(page, reason, token => RefreshPageAsync(page, reason, token)); }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (!_catalog.IsCurrent(page.Id, page.Revision)) { }
         catch (Exception ex) { Logger.LogException($"refresh {page.Name}", ex); }
     }
 
@@ -192,7 +241,7 @@ public sealed class PageEngine : IDisposable
         // 所有页面都可以刷新，但只有活动页能写入 MonitorState、托盘和浮窗。
         await _dispatcher.InvokeAsync(() =>
         {
-            if (page.Id == _activeId) RenderRuntime(page, result);
+            if (!ct.IsCancellationRequested && page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision)) RenderRuntime(page, result);
         });
     }
 
@@ -236,10 +285,20 @@ public sealed class PageEngine : IDisposable
             ? kind : LoginKind.None;
     }
 
+    public async Task StopAsync()
+    {
+        _catalog.Changed -= OnCatalogChanged;
+        _cts.Cancel();
+        await _refreshes.StopAsync();
+        if (_pollLoop is not null) await _pollLoop;
+        Task[] cleanup;
+        lock (_maintenanceGate) cleanup = _maintenance.ToArray();
+        await Task.WhenAll(cleanup);
+    }
+
     public void Dispose()
     {
         _cts.Cancel();
-        try { _pollLoop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _cts.Dispose();
     }
 }

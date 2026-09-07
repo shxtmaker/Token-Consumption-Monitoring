@@ -33,7 +33,13 @@ public sealed record PageConfigurationSaveResult(
 /// pages.json 存储：当前 schema 可写，损坏/未来版本/完整性失败进入只读恢复态。
 /// 不读取其他产品名称、其他数据目录或其他凭据 target。
 /// </summary>
-public sealed class PageConfigStore
+public interface IPageConfigurationPersistence
+{
+    PageConfigurationSaveResult ValidateWrite(PageConfigDocument document);
+    PageConfigurationSaveResult Save(PageConfigDocument document);
+}
+
+public sealed class PageConfigStore : IPageConfigurationPersistence
 {
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -94,6 +100,19 @@ public sealed class PageConfigStore
             if (_writeLease is null)
                 return new PageConfigurationSaveResult(false, "页面配置尚未获得写入许可", _recoveryRequired);
             return Save(document, _writeLease);
+        }
+    }
+
+    public PageConfigurationSaveResult ValidateWrite(PageConfigDocument document)
+    {
+        lock (_lock)
+        {
+            if (_recoveryRequired || _writeLease is null)
+                return new(false, "页面配置未获得写入许可", _recoveryRequired);
+            if (document.IsCorrupt || document.SchemaVersion != PageConfigDocument.CurrentSchemaVersion
+                || !PageConfigParser.ValidateForSave(document))
+                return new(false, document.Diagnostic ?? "页面配置无效", true);
+            return new(true);
         }
     }
 

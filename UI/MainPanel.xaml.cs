@@ -10,19 +10,15 @@ namespace TokenConsumptionMonitoring.UI;
 
 public partial class MainPanel : Window
 {
-    private static readonly string[] CompatibilityMethodIds =
-    {
-        "opencode.rolling-window.api-key",
-        "opencode.allowance.oauth",
-        "commandcode.allowance-window.compat",
-        "deepseek.console-usage.compat",
-    };
-
-    private readonly PageConfigStore _pageStore;
-    private readonly List<PageConfigRecord> _pages;
-    private readonly List<string> _modelDraft = new();
+    private readonly PageConfigurationCommands _commands;
+    private readonly PageCatalog _catalog;
+    private readonly string? _configurationDiagnostic;
+    private List<PageConfigRecord> _pages => _catalog.Snapshot();
+    private readonly PageEditorViewModel _editor = new();
+    private List<string> _modelDraft => _editor.Models;
     private KeyFormat.Protocol _protocol = KeyFormat.Protocol.ChatCompletions;
-    private PageConfigRecord? _editing;
+    private PageConfigRecord? _editing { get => _editor.Editing; set => _editor.Editing = value; }
+    private string _loadedSecret { get => _editor.LoadedSecret; set => _editor.LoadedSecret = value; }
     private bool _syncingActivePage;
 
     public event Action? RefreshRequested;
@@ -48,11 +44,13 @@ public partial class MainPanel : Window
         base.OnClosing(e);
     }
 
-    public MainPanel(PageConfigStore pageStore, List<PageConfigRecord> pages, MonitorState state)
+    public MainPanel(PageConfigurationCommands commands, PageCatalog catalog, MonitorState state,
+        string? configurationDiagnostic = null)
     {
         InitializeComponent();
-        _pageStore = pageStore;
-        _pages = pages;
+        _commands = commands;
+        _catalog = catalog;
+        _configurationDiagnostic = configurationDiagnostic;
         DataContext = state;
 
         PProtocolCombo.ItemsSource = Enum.GetValues<KeyFormat.Protocol>();
@@ -71,7 +69,9 @@ public partial class MainPanel : Window
         var idx = selectId is null ? -1 : _pages.FindIndex(p => p.Id == selectId);
         if (idx < 0) idx = _pages.Count > 0 ? 0 : -1;
         PageCombo.SelectedIndex = idx;
-        PageHintText.Text = _pages.Count == 0
+        PageHintText.Text = !string.IsNullOrWhiteSpace(_configurationDiagnostic)
+            ? $"页面配置处于只读恢复态：{_configurationDiagnostic}。原文件保持不变，请恢复有效配置后重新启动。"
+            : _pages.Count == 0
             ? "当前没有页面——点击「新建」创建第一个 API 配置页面"
             : $"共 {_pages.Count} 个页面 · 小组件名称 = 页面名称";
     }
@@ -131,6 +131,7 @@ public partial class MainPanel : Window
 
     private void ClearForm()
     {
+        _loadedSecret = "";
         PNameBox.Text = "";
         PBaseUrlBox.Text = "";
         PKeyBox.Password = "";
@@ -147,10 +148,8 @@ public partial class MainPanel : Window
         PBaseUrlBox.Text = page.BaseUrl;
         PProtocolCombo.SelectedItem = page.ParseProtocol();
         PCompatibilityBox.IsChecked = page.EnabledCompatibilityMethods.Count > 0;
-        PKeyBox.Password = "";
-        if (page.CredentialRef.ResolveClass() == CredentialClass.ApiKey
-            && CredentialStore.TryReadSecret(page.CredentialRef.Target!, out var key))
-            PKeyBox.Password = key ?? "";
+        PKeyBox.Password = _commands.ReadApiKeyForEditing(page);
+        _loadedSecret = PKeyBox.Password;
         _modelDraft.Clear();
         _modelDraft.AddRange(page.ConfiguredModelHints);
         PModelsList.ItemsSource = null;
@@ -278,68 +277,25 @@ public partial class MainPanel : Window
 
     private void SavePage()
     {
-        var name = PNameBox.Text.Trim();
-        var baseUrl = PBaseUrlBox.Text.Trim();
-        if (string.IsNullOrEmpty(name)) { MessageBox.Show("请输入名称（如：DeepSeek 官方）"); return; }
-        if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out _)) { MessageBox.Show("请输入有效的 Base URL"); return; }
-
         var editing = _editing;
         var previousSelectedId = (PageCombo.SelectedItem as PageConfigRecord)?.Id;
-        var page = editing is null ? new PageConfigRecord() : ClonePage(editing);
-        page.Name = name;
-        page.BaseUrl = baseUrl;
-        page.Protocol = _protocol.ToString();
-        page.ConfiguredModelHints = new List<string>(_modelDraft);
-
-        // 凭据引用与查询方法解耦；私有兼容来源必须由高级开关显式启用。
-        page.EnabledCompatibilityMethods = PCompatibilityBox.IsChecked == true
-            ? editing is { EnabledCompatibilityMethods.Count: > 0 }
-                ? new List<string>(editing.EnabledCompatibilityMethods)
-                : CompatibilityMethodIds.ToList()
-            : new List<string>();
-        string? secretToSave = null;
-        string? secretTarget = null;
-        if (_protocol == KeyFormat.Protocol.DeepSeekConsole)
-            page.CredentialRef = CredentialReference.GlobalConsoleSession(AppIdentity.DeepSeekCookiesTarget);
-        else
-        {
-            page.CredentialRef = CredentialReference.PageApiKey(page.Id);
-            var key = PKeyBox.Password;
-            if (string.IsNullOrEmpty(key) && _editing is null) { MessageBox.Show("请输入 API Key"); return; }
-            if (!string.IsNullOrEmpty(key))
-            {
-                var (valid, hint) = KeyFormat.Validate(_protocol, key);
-                if (!valid) { MessageBox.Show($"API Key 无效：{hint}"); return; }
-                secretTarget = AppIdentity.ApiKeyTarget(page.Id);
-                secretToSave = key;
-            }
-        }
-
-        var editingIndex = editing is null ? -1 : _pages.IndexOf(editing);
-        if (editing is null) _pages.Add(page);
-        else if (editingIndex >= 0) _pages[editingIndex] = page;
-        var saveResult = _pageStore.Save(new PageConfigDocument
-        {
-            SchemaVersion = PageConfigDocument.CurrentSchemaVersion,
-            Pages = _pages,
-        });
+        _editor.Name = PNameBox.Text;
+        _editor.BaseUrl = PBaseUrlBox.Text;
+        _editor.Protocol = _protocol;
+        _editor.EnableCompatibility = PCompatibilityBox.IsChecked == true;
+        var saveResult = _editor.Save(_commands, PKeyBox.Password);
         if (!saveResult.Succeeded)
         {
-            if (editing is null) _pages.Remove(page);
-            else if (editingIndex >= 0) _pages[editingIndex] = editing;
             RefreshPageCombo(editing?.Id ?? previousSelectedId);
             MessageBox.Show(saveResult.Diagnostic ?? "页面配置保存失败", "保存失败", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
-        if (secretToSave is not null && secretTarget is not null)
-            CredentialStore.SaveSecret(secretTarget, secretToSave);
-
         ProviderForm.Visibility = Visibility.Collapsed;
         _editing = null;
-        RefreshPageCombo(page.Id);
+        RefreshPageCombo(_editor.SavedPageId);
         // 保存后触发自动扫描
-        RescanRequested?.Invoke(page.Id);
+        RescanRequested?.Invoke(_editor.SavedPageId!);
         PagesChanged?.Invoke();
     }
 
@@ -354,16 +310,9 @@ public partial class MainPanel : Window
         if (PageCombo.SelectedItem is not PageConfigRecord page) return;
         if (MessageBox.Show($"删除页面「{page.Name}」？（凭据管理器中的 key 保留）", "删除页面",
             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        var index = _pages.IndexOf(page);
-        _pages.Remove(page);
-        var saveResult = _pageStore.Save(new PageConfigDocument
-        {
-            SchemaVersion = PageConfigDocument.CurrentSchemaVersion,
-            Pages = _pages,
-        });
+        var saveResult = _commands.Delete(page);
         if (!saveResult.Succeeded)
         {
-            if (index >= 0) _pages.Insert(index, page);
             RefreshPageCombo(page.Id);
             MessageBox.Show(saveResult.Diagnostic ?? "页面配置保存失败", "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -404,24 +353,4 @@ public partial class MainPanel : Window
         catch (System.ComponentModel.Win32Exception ex) { MessageBox.Show(ex.Message); }
     }
 
-    private static PageConfigRecord ClonePage(PageConfigRecord page) => new()
-    {
-        Id = page.Id,
-        Name = page.Name,
-        BaseUrl = page.BaseUrl,
-        Protocol = page.Protocol,
-        CredentialRef = page.CredentialRef,
-        ConfiguredModelHints = new List<string>(page.ConfiguredModelHints),
-        EnabledCompatibilityMethods = new List<string>(page.EnabledCompatibilityMethods),
-        SortOrder = page.SortOrder,
-        Deprecated = page.Deprecated is { } deprecated
-            ? new DeprecatedPageSettings
-            {
-                AmountWarnCny = deprecated.AmountWarnCny,
-                AmountCriticalCny = deprecated.AmountCriticalCny,
-                TokenWarn = deprecated.TokenWarn,
-                TokenCritical = deprecated.TokenCritical,
-            }
-            : null,
-    };
 }

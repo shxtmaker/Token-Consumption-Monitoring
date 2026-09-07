@@ -23,7 +23,9 @@ public interface IPageRuntimeCoordinator
     Task<ScanReport> RescanAsync(PageConfigRecord page, ScanReason reason, CancellationToken cancellationToken);
 
     /// <summary>临时覆盖自动选择（只作用于当前运行时；配置变化/重扫后恢复自动选择）。</summary>
-    void SetTemporaryOverride(string pageId, string? methodId);
+    Task SetTemporaryOverrideAsync(string pageId, string? methodId);
+
+    Task RemovePageAsync(string pageId);
 
     /// <summary>读取指定页面最近一次运行时快照，供活动页切换时立即投影。</summary>
     bool TryGetSnapshot(string pageId, out CapabilitySnapshot snapshot)

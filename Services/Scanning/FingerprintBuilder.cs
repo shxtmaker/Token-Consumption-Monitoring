@@ -41,6 +41,8 @@ public sealed class FingerprintBuilder
         sb.Append(Uri.TryCreate(page.BaseUrl, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Path).TrimEnd('/') : page.BaseUrl);
         sb.Append("|").Append(page.Protocol);
         sb.Append("|credential=").Append(page.CredentialRef.ResolveClass());
+        sb.Append("|reference=").Append(page.CredentialRef.Target);
+        sb.Append("|session=").Append(page.SessionGeneration);
         sb.Append("|compat=").Append(string.Join(",", page.EnabledCompatibilityMethods.OrderBy(x => x, StringComparer.Ordinal)));
         sb.Append("|methods=").Append(string.Join(",", _methodImplementations));
         var localSignatures = localSourceSignatures?.OrderBy(x => x, StringComparer.Ordinal).ToList() ?? new List<string>();

@@ -15,6 +15,7 @@ public sealed class RuntimeCoordinatorTests
     {
         private readonly QueryMethodDescriptor _descriptor;
         private readonly MethodCandidate _candidate;
+        public CandidateStatus? ScanFailure { get; set; }
         private readonly Func<int, MethodQueryResult> _result;
 
         public int ScanCalls { get; private set; }
@@ -37,7 +38,8 @@ public sealed class RuntimeCoordinatorTests
         public Task<MethodCandidate> ScanAsync(PageConfigRecord page, ScanContext context, CancellationToken ct)
         {
             ScanCalls++;
-            return Task.FromResult(_candidate);
+            return Task.FromResult(ScanFailure is { } status
+                ? MethodSupport.NotAvailable(_descriptor, status, "scan failed") : _candidate);
         }
 
         public Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
@@ -107,6 +109,150 @@ public sealed class RuntimeCoordinatorTests
         return (coordinator, cache, stateStore, directory);
     }
 
+    [Fact]
+    public async Task RemovePage_ClearsSnapshotCacheAndPersistedScan()
+    {
+        var descriptor = Descriptor("remove", CapabilityKind.RollingWindow);
+        var runtime = NewCoordinator(new StubMethod(descriptor, _ => Success(Window("window", 42))));
+        try
+        {
+            var result = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var key = MethodResultCache.MethodKey(Page().Id, result.Scan!.Fingerprint, descriptor.MethodId, descriptor.ImplementationVersion);
+            Assert.True(runtime.Cache.TryGet(key, out _));
+            await runtime.Coordinator.RemovePageAsync(Page().Id);
+            Assert.False(runtime.Coordinator.TryGetSnapshot(Page().Id, out _));
+            Assert.False(runtime.Coordinator.TryGetScanReport(Page().Id, out _));
+            Assert.False(runtime.Cache.TryGet(key, out _));
+            Assert.Null(runtime.StateStore.Load(Page().Id));
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task FailedRescan_PreservesHistoryButChangedIdentityDoesNot()
+    {
+        var method = new StubMethod(Descriptor("scan", CapabilityKind.RollingWindow),
+            _ => Success(Window("window", 42)));
+        var runtime = NewCoordinator(method);
+        try
+        {
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            method.ScanFailure = CandidateStatus.NetworkFailure;
+            var failed = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            Assert.Equal(SnapshotStatus.Stale, failed.Snapshot.Status);
+            Assert.True(failed.Snapshot.Windows.Single().IsStale);
+            Assert.Equal(1, method.QueryCalls);
+            var changed = Page();
+            changed.BaseUrl = "https://different.invalid";
+            var isolated = await runtime.Coordinator.RefreshAsync(changed, RefreshReason.Manual, CancellationToken.None);
+            Assert.Empty(isolated.Snapshot.Windows);
+            Assert.Equal(SnapshotStatus.TemporaryFailure, isolated.Snapshot.Status);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task RateLimit_ManualRefreshDoesNotBypassQueryCooldown()
+    {
+        var method = new StubMethod(Descriptor("limited", CapabilityKind.RollingWindow),
+            _ => Failure(CandidateStatus.RateLimited));
+        var runtime = NewCoordinator(method);
+        try
+        {
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var second = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            Assert.Equal(1, method.QueryCalls);
+            Assert.Equal(SnapshotStatus.RateLimited, second.Snapshot.Status);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task TerminalFailure_PollWaitsForExplicitRescan()
+    {
+        var method = new StubMethod(Descriptor("auth", CapabilityKind.RollingWindow),
+            _ => Failure(CandidateStatus.AuthRequired));
+        var runtime = NewCoordinator(method);
+        try
+        {
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
+            Assert.Equal(1, method.QueryCalls);
+            await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            Assert.Equal(2, method.QueryCalls);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    [Fact]
+    public void FailurePriority_DoesNotDependOnMethodRegistrationOrder()
+    {
+        var failures = new[]
+        {
+            new FailureInfo(CandidateStatus.NetworkFailure, "network", DateTimeOffset.UtcNow),
+            new FailureInfo(CandidateStatus.AuthRequired, "auth", DateTimeOffset.UtcNow),
+        };
+        Assert.Equal(CandidateStatus.AuthRequired, SnapshotPolicy.PrimaryFailure(failures)!.Status);
+        Assert.Equal(SnapshotPolicy.PrimaryFailure(failures), SnapshotPolicy.PrimaryFailure(failures.Reverse()));
+    }
+    [Fact]
+    public async Task ManualRescanFailure_PreservesRecentSuccess()
+    {
+        var descriptor = Descriptor("manual", CapabilityKind.RollingWindow);
+        var method = new StubMethod(descriptor, call => call == 1
+            ? Success(Window("window", 42)) : Failure(CandidateStatus.Forbidden));
+        var runtime = NewCoordinator(method);
+        try
+        {
+            var first = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var second = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            Assert.Equal(2, method.QueryCalls);
+            Assert.Equal(SnapshotStatus.Stale, second.Snapshot.Status);
+            Assert.Equal(first.Snapshot.Windows.Single().FetchedAt, second.Snapshot.Windows.Single().FetchedAt);
+            Assert.True(second.Snapshot.Windows.Single().IsStale);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
+
+    private sealed class ImmediateRetryTime : TimeProvider
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            => System.CreateTimer(callback, state, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+    }
+
+    [Fact]
+    public async Task StaleFailures_RescanOnNextRoundWithoutRecursiveQuery()
+    {
+        var descriptor = Descriptor("stale", CapabilityKind.RollingWindow);
+        var method = new StubMethod(descriptor, call => call == 1
+            ? Success(Window("window", 42, DateTimeOffset.UtcNow.AddMinutes(-2))) : Failure());
+        var runtime = NewCoordinator(method);
+        var coordinator = new PageRuntimeCoordinator(new QueryMethodRegistry(new[] { method }),
+            new FingerprintBuilder(new[] { descriptor }), runtime.StateStore, runtime.Cache,
+            time: new ImmediateRetryTime());
+        try
+        {
+            var first = await coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
+            var key = MethodResultCache.MethodKey(Page().Id, first.Scan!.Fingerprint, descriptor.MethodId, descriptor.ImplementationVersion);
+            runtime.Cache.Put(key, first.Snapshot with
+            {
+                Metadata = first.Snapshot.Metadata with { FetchedAt = DateTimeOffset.UtcNow.AddMinutes(-2) },
+            });
+            for (var i = 0; i < 3; i++)
+            {
+                var result = await coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
+                Assert.Equal(SnapshotStatus.Stale, result.Snapshot.Status);
+                Assert.Null(result.Scan);
+            }
+            Assert.Equal(1, method.ScanCalls);
+            Assert.Equal(10, method.QueryCalls);
+            var recovered = await coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
+            Assert.NotNull(recovered.Scan);
+            Assert.Equal(2, method.ScanCalls);
+            Assert.Equal(13, method.QueryCalls);
+        }
+        finally { Directory.Delete(runtime.Directory, recursive: true); }
+    }
     [Fact]
     public async Task OneMethodReturningThreeWindows_PreservesAllItems()
     {
@@ -321,7 +467,7 @@ public sealed class RuntimeCoordinatorTests
         try
         {
             await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Manual, CancellationToken.None);
-            runtime.Coordinator.SetTemporaryOverride("page-1", alternateDescriptor.MethodId);
+            await runtime.Coordinator.SetTemporaryOverrideAsync("page-1", alternateDescriptor.MethodId);
             var overridden = await runtime.Coordinator.RefreshAsync(Page(), RefreshReason.Poll, CancellationToken.None);
             var serializedState = File.ReadAllText(Path.Combine(runtime.Directory, "runtime", "page-1.json"));
 

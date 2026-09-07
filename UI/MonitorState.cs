@@ -1,13 +1,14 @@
+using TokenConsumptionMonitoring.Models;
 using System.ComponentModel;
 using TokenConsumptionMonitoring.Models.Usage;
 using TokenConsumptionMonitoring.Services.Scanning;
 using TokenConsumptionMonitoring.UI.Diagnostics;
 
-namespace TokenConsumptionMonitoring.Models;
+namespace TokenConsumptionMonitoring.UI;
 
-public enum ConnectionStatus { Unknown, Ok, Warn, Critical, AuthError, Offline }
 
-public enum AlertLevel { None, Warn, Critical }
+
+
 
 /// <summary>模型统计行（名称 + tokens + 可选金额）。</summary>
 public sealed class ModelStatRow : INotifyPropertyChanged

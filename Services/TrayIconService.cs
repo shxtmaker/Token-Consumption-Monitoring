@@ -7,7 +7,12 @@ using TokenConsumptionMonitoring.Models;
 namespace TokenConsumptionMonitoring.Services;
 
 /// <summary>托盘图标 + 气球通知。</summary>
-public sealed class TrayIconService : IDisposable
+public interface ITrayStatusSink
+{
+    void SetState(ConnectionStatus status, AlertLevel level);
+}
+
+public sealed class TrayIconService : IDisposable, ITrayStatusSink
 {
     private readonly NotifyIcon _icon;
     private IntPtr _currentHIcon;

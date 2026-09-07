@@ -13,52 +13,86 @@ namespace TokenConsumptionMonitoring.Services.Runtime;
 /// </summary>
 public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 {
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(1);
+    private readonly MethodExecutor _executor;
+    private readonly PageCatalog? _catalog;
 
     private readonly QueryMethodRegistry _registry;
     private readonly FingerprintBuilder _fingerprints;
     private readonly MethodStateStore _stateStore;
     private readonly MethodResultCache _cache;
     private readonly PageRuntimeStateStore _runtimeState;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _pageLocks = new();
-    private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
+    private readonly object _locksGate = new();
+    private readonly Dictionary<string, PageLock> _pageLocks = new();
+    private sealed class PageLock
+    {
+        public readonly SemaphoreSlim Semaphore = new(1, 1);
+        public int Users;
+    }
+
 
     public PageRuntimeCoordinator(
         QueryMethodRegistry registry,
         FingerprintBuilder fingerprints,
         MethodStateStore stateStore,
         MethodResultCache cache,
-        PageRuntimeStateStore? runtimeState = null)
+        PageRuntimeStateStore? runtimeState = null, TimeProvider? time = null, PageCatalog? catalog = null)
     {
         _registry = registry;
         _fingerprints = fingerprints;
         _stateStore = stateStore;
         _cache = cache;
+        _catalog = catalog;
+        _executor = new MethodExecutor(cache, time, catalog);
         _runtimeState = runtimeState ?? new PageRuntimeStateStore();
     }
 
     public Task<PageRuntimeResult> RefreshAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
-        => WithPageLock(page.Id, () => RefreshCoreAsync(page, reason, ct), ct);
+        => WithPageLock(page.Id, () =>
+        {
+            Publish(page, () => { });
+            return RefreshCoreAsync(page, reason, ct);
+        }, ct);
 
     public async Task<ScanReport> RescanAsync(PageConfigRecord page, ScanReason reason, CancellationToken ct)
     {
         var result = await WithPageLock(page.Id, () => RescanAndQueryAsync(page, ToRefreshReason(reason), ct), ct);
-        _consecutiveFailures[page.Id] = 0;
+
         return result.Scan!;
     }
 
     public bool TryGetSnapshot(string pageId, out CapabilitySnapshot snapshot)
-        => _runtimeState.TryGetSnapshot(pageId, out snapshot);
+    {
+        if (!_runtimeState.TryGetSnapshot(pageId, out snapshot)) return false;
+        if (_catalog is null) return true;
+        var page = _catalog.Snapshot().FirstOrDefault(page => page.Id == pageId);
+        if (page is not null && _fingerprints.Build(page) == snapshot.Metadata.ConfigurationFingerprint) return true;
+        snapshot = null!;
+        return false;
+    }
 
     public bool TryGetScanReport(string pageId, out ScanReport report)
         => _runtimeState.TryGetScan(pageId, out report);
 
     /// <summary>临时覆盖只存于进程内；不写入 PageMethodState 或页面配置。</summary>
-    public void SetTemporaryOverride(string pageId, string? methodId)
-    {
-        _runtimeState.SetTemporaryOverride(pageId, methodId);
-        _cache.InvalidatePage(pageId);
-    }
+    public Task SetTemporaryOverrideAsync(string pageId, string? methodId)
+        => WithPageLock(pageId, () =>
+        {
+            var page = _catalog?.Snapshot().FirstOrDefault(page => page.Id == pageId);
+            if (_catalog is not null && page is null) return Task.FromResult(false);
+            if (page is null) _runtimeState.SetTemporaryOverride(pageId, methodId);
+            else Publish(page, () => _runtimeState.SetTemporaryOverride(pageId, methodId));
+            return Task.FromResult(true);
+        }, CancellationToken.None);
+
+    public Task RemovePageAsync(string pageId)
+        => WithPageLock(pageId, () =>
+        {
+            if (_catalog?.Snapshot().Any(page => page.Id == pageId) == true) return Task.FromResult(false);
+            _executor.InvalidatePage(pageId);
+            _runtimeState.Clear(pageId);
+            _stateStore.Delete(pageId);
+            return Task.FromResult(true);
+        }, CancellationToken.None);
 
     private async Task<PageRuntimeResult> RefreshCoreAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
@@ -67,6 +101,8 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
         var runtime = _runtimeState.GetOrCreate(page.Id);
         var configurationChanged = runtime.Fingerprint is not null && runtime.Fingerprint != fingerprint;
 
+        var recoveryDue = _executor.ConsumeRescan(page.Id);
+        if (recoveryDue) reason = RefreshReason.ConsecutiveFailures;
         var needRescan = reason is RefreshReason.PageSaved
             or RefreshReason.ConfigurationChanged
             or RefreshReason.FingerprintChanged
@@ -78,8 +114,11 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
         if (configurationChanged || reason is RefreshReason.ConfigurationChanged or RefreshReason.FingerprintChanged)
         {
-            _runtimeState.ClearTemporaryOverride(page.Id);
-            _cache.InvalidatePage(page.Id);
+            Publish(page, () =>
+            {
+                _runtimeState.ClearTemporaryOverride(page.Id);
+                _executor.InvalidatePage(page.Id);
+            });
             needRescan = true;
         }
 
@@ -90,15 +129,17 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
             persisted!.Candidates,
             persisted.SelectedMethodIdsByCapability ?? new Dictionary<CapabilityKind, string>(),
             _runtimeState.TemporaryOverrideFor(page.Id));
+        Publish(page, () => {
         runtime.Fingerprint = fingerprint;
         runtime.Plan = plan;
+        });
         return await PollQueryAsync(page, persisted, plan, fingerprint, ct, reason);
     }
 
     private async Task<PageRuntimeResult> RescanAndQueryAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
         // 重扫代表重新确认来源，之前的人工覆盖必须失效。
-        _runtimeState.ClearTemporaryOverride(page.Id);
+        Publish(page, () => _runtimeState.ClearTemporaryOverride(page.Id));
         var fingerprint = _fingerprints.Build(page);
         var context = new ScanContext
         {
@@ -119,7 +160,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
             try
             {
-                candidates.Add(await method.ScanAsync(page, context, ct));
+                candidates.Add(await _executor.ScanAsync(page, method, context, ct));
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -143,19 +184,22 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
             SelectionStatus = plan.OverallStatus,
         };
 
-        // 重扫重新确认来源，不能复用旧方法结果或临时覆盖的查询计划。
-        _cache.InvalidatePage(page.Id);
-        _stateStore.Save(persisted);
+        // 重扫绕过缓存，但保留同一配置身份下的成功历史。
+        Publish(page, () => _stateStore.Save(persisted));
 
         var runtime = _runtimeState.GetOrCreate(page.Id);
+        Publish(page, () => {
         runtime.Fingerprint = fingerprint;
         runtime.Scan = report;
         runtime.Plan = plan;
+        });
         var aggregate = await QuerySelectedAsync(page, plan, fingerprint, reason, ct);
+        Publish(page, () => {
         runtime.Snapshot = aggregate.Snapshot;
         runtime.LastFailure = aggregate.Failure;
         runtime.LastAttemptAt = DateTimeOffset.UtcNow;
-        _consecutiveFailures[page.Id] = 0;
+        });
+
 
         var authClass = ResolveAuthCredentialClass(page, ordered, plan, aggregate.Failure);
         return new PageRuntimeResult(page.Id, aggregate.Snapshot, report, aggregate.Failure, authClass);
@@ -171,26 +215,11 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
     {
         var runtime = _runtimeState.GetOrCreate(page.Id);
         var aggregate = await QuerySelectedAsync(page, plan, fingerprint, reason, ct);
+        Publish(page, () => {
         runtime.Snapshot = aggregate.Snapshot;
         runtime.LastFailure = aggregate.Failure;
         runtime.LastAttemptAt = DateTimeOffset.UtcNow;
-
-        if (aggregate.Snapshot.Capabilities.All(c => c.Kind == CapabilityKind.ProbeDiagnostic)
-            && aggregate.Failure is not null)
-        {
-            var count = _consecutiveFailures.TryGetValue(page.Id, out var n) ? n + 1 : 1;
-            _consecutiveFailures[page.Id] = count;
-            if (count >= RetryPolicy.RescanAfterConsecutiveFailures)
-            {
-                Logger.Log($"page {page.Id}: 连续失败 {count} 次，触发重新扫描");
-                _consecutiveFailures[page.Id] = 0;
-                return await RescanAndQueryAsync(page, RefreshReason.ConsecutiveFailures, ct);
-            }
-        }
-        else
-        {
-            _consecutiveFailures.TryRemove(page.Id, out _);
-        }
+        });
 
         var authClass = ResolveAuthCredentialClass(page, state.Candidates, plan, aggregate.Failure);
         return new PageRuntimeResult(page.Id, aggregate.Snapshot, null, aggregate.Failure, authClass);
@@ -239,7 +268,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
                 continue;
 
             var methodId = candidate.Method.MethodId;
-            var result = await QueryMethodAsync(page, method, candidate, fingerprint, ct);
+            var result = await _executor.ExecuteAsync(page, method, candidate, fingerprint, ct, reason != RefreshReason.Poll);
             results[methodId] = result;
             AddValuesForMethod(methodId, result, effectiveSelections, values, itemKeys);
             if (result.Failure is not null)
@@ -272,7 +301,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
                 if (_registry.Find(fallbackId) is not { } fallbackMethod)
                     continue;
                 var fallbackCandidate = fallbackCandidates.First(candidate => candidate.Method.MethodId == fallbackId);
-                fallbackResult = await QueryMethodAsync(page, fallbackMethod, fallbackCandidate, fingerprint, ct);
+                fallbackResult = await _executor.ExecuteAsync(page, fallbackMethod, fallbackCandidate, fingerprint, ct, reason != RefreshReason.Poll);
                 results[fallbackId] = fallbackResult;
                 if (fallbackResult.Failure is not null)
                     failures.Add(fallbackResult.Failure);
@@ -294,6 +323,18 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
         if (plan.RequiresSelection)
             failures.Add(new FailureInfo(CandidateStatus.RequiresSelection, "能力来源并列，需要人工选择", DateTimeOffset.UtcNow));
+        // 扫描暂时失败时保留同一数据身份的历史值，不将其作为新的可用来源。
+        if (_runtimeState.TryGetSnapshot(page.Id, out var previous)
+            && previous.Metadata.ConfigurationFingerprint == fingerprint)
+        {
+            foreach (var selection in plan.Selections.Values.Where(selection => selection.Selected is null
+                         && selection.Status is CandidateStatus.NetworkFailure or CandidateStatus.RateLimited
+                             or CandidateStatus.AuthRequired or CandidateStatus.Forbidden or CandidateStatus.SchemaMismatch))
+            {
+                foreach (var value in previous.Capabilities.Where(value => value.Kind == selection.Capability))
+                    if (itemKeys.Add(CapabilityItemKey.For(value))) values.Add(value with { IsStale = true });
+            }
+        }
         // 已有可用能力时，“待登录的附加能力”（如 OAuth 余额）不算故障：整页保持 Success，登录入口由诊断列与登录按钮承担。
         // 页面没有任何可用能力时仍保留该失败，让整页表达“需要鉴权”并触发登录流程。
         var hasFreshUsage = values.Any(value => value.Kind != CapabilityKind.ProbeDiagnostic && !value.IsStale);
@@ -306,7 +347,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
                 $"能力 {selection.Capability} 没有可用来源", DateTimeOffset.UtcNow));
         }
 
-        var status = ResolveSnapshotStatus(values, failures, plan);
+        var status = SnapshotPolicy.Resolve(values, failures, plan);
         var fetchedAt = values.Count > 0
             ? values.Max(value => value.FetchedAt)
             : failures.Count > 0 ? failures.Max(failure => failure.At) : DateTimeOffset.UtcNow;
@@ -326,7 +367,7 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
             Status = status,
             Capabilities = values,
         };
-        return new QueryAggregate(snapshot, failures.FirstOrDefault());
+        return new QueryAggregate(snapshot, SnapshotPolicy.PrimaryFailure(failures));
     }
 
     private static void AddValuesForMethod(
@@ -350,119 +391,11 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
         }
     }
 
-    private async Task<MethodQueryResult> QueryMethodAsync(
-        PageConfigRecord page,
-        IQueryMethod method,
-        MethodCandidate candidate,
-        string fingerprint,
-        CancellationToken ct)
+    private void Publish(PageConfigRecord page, Action action)
     {
-        var descriptor = method.Describe();
-        var key = MethodResultCache.MethodKey(page.Id, fingerprint, descriptor.MethodId, descriptor.ImplementationVersion);
-        if (_cache.TryGet(key, out var cached)
-            && cached.HasLastSuccessfulSnapshot
-            && !cached.IsStale(CacheTtl))
-        {
-            return new MethodQueryResult(
-                cached.LastSuccessfulSnapshot.Capabilities,
-                cached.LastSuccessfulSnapshot.Status,
-                null,
-                cached.LastSuccessfulSnapshot.Metadata.FetchedAt);
-        }
-
-        MethodQueryResult? result = null;
-        for (var attempt = 0; ; attempt++)
-        {
-            try
-            {
-                result = await method.QueryAsync(page, candidate, ct);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                result = FailedResult(CandidateStatus.NetworkFailure, "请求超时");
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (HttpRequestException ex)
-            {
-                result = FailedResult(QueryFailureClassifier.StatusOf(ex), QueryFailureClassifier.ReasonOf(ex));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogException($"query {descriptor.MethodId}", ex);
-                result = FailedResult(QueryFailureClassifier.StatusOf(ex), QueryFailureClassifier.ReasonOf(ex));
-            }
-
-            if (result is null || result.Failure is null || !RetryPolicy.ShouldRetry(result.Failure.Status, attempt))
-                break;
-            await Task.Delay(RetryPolicy.Backoff(attempt), ct);
-        }
-
-        result ??= FailedResult(CandidateStatus.NetworkFailure, "查询未返回结果");
-        _cache.RecordAttempt(key, result);
-
-        if (IsSuccessfulResult(result))
-        {
-            var snapshot = new CapabilitySnapshot
-            {
-                Metadata = new SnapshotMetadata(page.Id, fingerprint, result.FetchedAt, descriptor.MethodId, RefreshReason.Poll,
-                    new[] { descriptor.MethodId }),
-                Status = result.Status,
-                Capabilities = result.Capabilities,
-            };
-            _cache.Put(key, snapshot, result);
-            return result;
-        }
-
-        if (_cache.TryGet(key, out var stale)
-            && stale.HasLastSuccessfulSnapshot)
-        {
-            var staleCapabilities = stale.LastSuccessfulSnapshot.Capabilities
-                .Select(capability => capability with { IsStale = true })
-                .ToList();
-            return new MethodQueryResult(
-                staleCapabilities,
-                SnapshotStatus.Stale,
-                result.Failure,
-                stale.LastSuccessfulSnapshot.Metadata.FetchedAt);
-        }
-        return result;
+        if (_catalog is null) action();
+        else _catalog.Publish(page, action);
     }
-
-    private static bool IsSuccessfulResult(MethodQueryResult result)
-        => result.Capabilities.Count > 0
-           && result.Status is SnapshotStatus.Success or SnapshotStatus.SuccessPartial or SnapshotStatus.ProbeOnly;
-
-    private static MethodQueryResult FailedResult(CandidateStatus status, string reason)
-    {
-        var snapshotStatus = QueryFailureClassifier.SnapshotStatusOf(status);
-        return new MethodQueryResult(
-            Array.Empty<CapabilityValue>(),
-            snapshotStatus,
-            new FailureInfo(status, reason, DateTimeOffset.UtcNow),
-            DateTimeOffset.UtcNow);
-    }
-
-    private static SnapshotStatus ResolveSnapshotStatus(
-        IReadOnlyList<CapabilityValue> values,
-        IReadOnlyList<FailureInfo> failures,
-        CapabilitySourcePlan plan)
-    {
-        var usageValues = values.Where(value => value.Kind != CapabilityKind.ProbeDiagnostic).ToList();
-        var freshUsage = usageValues.Any(value => !value.IsStale);
-        var staleUsage = usageValues.Any(value => value.IsStale);
-        if (freshUsage)
-            return failures.Count > 0 || staleUsage ? SnapshotStatus.SuccessPartial : SnapshotStatus.Success;
-        if (staleUsage) return SnapshotStatus.Stale;
-        if (values.Any(value => value.Kind == CapabilityKind.ProbeDiagnostic) && failures.Count == 0)
-            return SnapshotStatus.ProbeOnly;
-        if (failures.Count > 0) return QueryFailureClassifier.SnapshotStatusOf(failures[0].Status);
-        if (plan.RequiresSelection) return SnapshotStatus.PermanentFailure;
-        return SnapshotStatus.NoData;
-    }
-
     private static RefreshReason ToRefreshReason(ScanReason reason) => reason switch
     {
         ScanReason.PageSaved => RefreshReason.PageSaved,
@@ -475,10 +408,31 @@ public sealed class PageRuntimeCoordinator : IPageRuntimeCoordinator
 
     private async Task<T> WithPageLock<T>(string pageId, Func<Task<T>> action, CancellationToken ct)
     {
-        var gate = _pageLocks.GetOrAdd(pageId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
-        try { return await action(); }
-        finally { gate.Release(); }
+        PageLock gate;
+        lock (_locksGate)
+        {
+            if (!_pageLocks.TryGetValue(pageId, out gate!)) _pageLocks[pageId] = gate = new PageLock();
+            gate.Users++;
+        }
+        var entered = false;
+        try
+        {
+            await gate.Semaphore.WaitAsync(ct);
+            entered = true;
+            return await action();
+        }
+        finally
+        {
+            if (entered) gate.Semaphore.Release();
+            lock (_locksGate)
+            {
+                if (--gate.Users == 0)
+                {
+                    _pageLocks.Remove(pageId);
+                    gate.Semaphore.Dispose();
+                }
+            }
+        }
     }
 
     private sealed record QueryAggregate(CapabilitySnapshot Snapshot, FailureInfo? Failure);
