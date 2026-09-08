@@ -112,7 +112,8 @@ Source: "$fixturePayload"; DestDir: "{app}"; Flags: ignoreversion
 $setup = Compile-TestPackage 'Setup' $version $PublishDirectory
 $upgrade = Compile-TestPackage 'Upgrade' $version $PublishDirectory
 $baselines = @{}
-foreach ($baselineVersion in @('1.2.2', '1.2.3')) {
+$baselineVersions = @('1.2.2', '1.2.3', '1.3.0')
+foreach ($baselineVersion in $baselineVersions) {
     $baselines[$baselineVersion] = Compile-LegacyFixture $baselineVersion
 }
 $downgrade = Compile-TestPackage 'Upgrade' '1.2.3' (Join-Path $testRoot 'baseline-1.2.3')
@@ -149,7 +150,7 @@ try {
     Assert-Condition (-not (Test-Path -LiteralPath $installedPayload)) 'Uninstall left the installed application.'
     Assert-Condition ((Get-Content -LiteralPath $sentinelPath -Raw) -eq $sentinelContent) 'Uninstall changed preserved data.'
 
-    foreach ($baselineVersion in @('1.2.2', '1.2.3')) {
+    foreach ($baselineVersion in $baselineVersions) {
         Invoke-Installer $baselines[$baselineVersion] "baseline-$baselineVersion-install" @('/CURRENTUSER', "/DIR=`"$installDirectory`"")
         # No explicit scope or directory: Inno Setup must detect and retain both.
         Invoke-Installer $upgrade "baseline-$baselineVersion-upgrade"

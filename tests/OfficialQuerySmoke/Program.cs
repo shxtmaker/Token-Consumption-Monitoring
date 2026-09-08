@@ -82,9 +82,9 @@ internal static class Program
             Capabilities = new CapabilityValue[]
             {
                 new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
-                    "primary", "Codex · 5 小时", null, null, null, null, 24, now.AddHours(3), "%"),
+                    "primary", "Codex · 5 小时", "正常", null, null, null, 24, now.AddHours(3), "%"),
                 new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
-                    "secondary", "Codex · 7 天", null, null, null, null, 61, now.AddDays(4), "%"),
+                    "secondary", "Codex · 7 天", "正常", null, null, null, 61, now.AddDays(4), "%"),
                 new ReportedUsageValue(CapabilityKind.ReportedUsage, source, scope,
                     new Coverage(null, null, Scope: "Codex 账户累计 Token · 非今日用量"), now, 1, false, false, 12345000, null, []),
             },
@@ -92,7 +92,7 @@ internal static class Program
         var floating = new FloatingWindow();
         var floatingRoot = (FrameworkElement)floating.Content;
         floating.Content = null;
-        Capture(floatingRoot, state, 318, null, Path.Combine(output, "codex-widget.png"));
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "codex-widget.png"));
         state.SetPageState(true, "DeepSeek 余额");
         state.ApplySnapshot(new CapabilitySnapshot
         {
@@ -104,8 +104,55 @@ internal static class Program
             },
         }, true);
         if (!state.Snapshot.BalanceLabel.Contains("CNY") || !state.Snapshot.BalanceLabel.Contains("USD")) throw new Exception("Missing currency");
-        Capture(floatingRoot, state, 318, null, Path.Combine(output, "multi-currency-widget.png"));
-        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection and seven WPF renders");
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "multi-currency-widget.png"));
+        state.SetPageState(true, "团队共享账户 · 长标题与模型用量汇总");
+        state.ApplySnapshot(new CapabilitySnapshot
+        {
+            Metadata = new("test", "test", now, "test", RefreshReason.Poll), Status = SnapshotStatus.Success,
+            Capabilities = new CapabilityValue[]
+            {
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "short", "5 小时窗口", "正常", null, null, null, 8, now.AddHours(3).AddMinutes(47), "%"),
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "long", "团队共享长期额度窗口 · 全部模型与工具调用", "周加成生效：额外额度将在本周期结束时恢复。",
+                    750_000_000, 10_000_000_000, 9_250_000_000, 7, now.AddDays(123).AddHours(5), "microcents"),
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "expired", "本周窗口", "正常", null, null, null, 100, now.AddMinutes(-1), "%"),
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "unknown", "额外额度窗口", null, null, null, null, null, null, "%"),
+                new ReportedUsageValue(CapabilityKind.ReportedUsage, source, scope,
+                    new Coverage(now.AddDays(-30), now, Scope: "组织全部项目与模型的报告用量"), now, 1, false, false,
+                    12_987_654_321, 123_456,
+                    new ModelUsageRow[]
+                    {
+                        new("team-production/reasoning-model-with-an-extra-long-deployment-name", 9_876_543_210, 1_234_567.89m, "CNY"),
+                        new("gpt-5", 3_111_111_111, 987.65m, "CNY"),
+                    }),
+            },
+        }, true);
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "alignment-long-content-widget.png"));
+
+        state.SetPageState(true, "多币种余额与组织额度");
+        state.ApplySnapshot(new CapabilitySnapshot
+        {
+            Metadata = new("test", "test", now, "test", RefreshReason.Poll), Status = SnapshotStatus.Success,
+            Capabilities = new CapabilityValue[]
+            {
+                new BalanceQuotaValue(CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, now, 1, false, false,
+                    1_234_567.8912m, null, null, null, "CNY", null),
+                new BalanceQuotaValue(CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, now, 1, false, false,
+                    123.45m, null, null, null, "USD", null),
+                new BalanceQuotaValue(CapabilityKind.BalanceOrQuota, source, scope,
+                    new Coverage(null, null, Scope: "组织月度共享额度，包含全部项目、模型与工具调用，周期结束后重新计算。"), now, 1, false, false,
+                    null, 1_234.5678m, 100_000.1234m, 98_765.5556m, "USD", null),
+                new BalanceQuotaValue(CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, now, 1, false, false,
+                    null, null, null, 0m, "EUR", null),
+                new BalanceQuotaValue(CapabilityKind.BalanceOrQuota, source, scope, Coverage.Unknown, now, 1, false, false,
+                    null, null, 500_000m, null, "CNY", null),
+            },
+        }, true);
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "alignment-multi-currency-quota-widget.png"));
+        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection and nine WPF renders");
         return 0;
     }
 
@@ -145,6 +192,7 @@ internal static class Program
         png.Frames.Add(BitmapFrame.Create(image));
         using var stream = File.Create(path);
         png.Save(stream);
+
     }
 
     private sealed class MemoryCredentials : IPageCredentialStore

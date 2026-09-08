@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="TokenConsumptionMonitoring" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ShowInTaskbar="False"
-        ResizeMode="NoResize" Width="318" SizeToContent="Height"
+        ResizeMode="NoResize" Width="290" SizeToContent="Height" UseLayoutRounding="True"
         MouseLeftButtonDown="Root_MouseLeftButtonDown">
     <Border x:Name="Root" CornerRadius="8" Background="#FF16181D"
             BorderBrush="#33FFFFFF" BorderThickness="1"
@@ -11,50 +11,62 @@
             MouseLeftButtonUp="Root_MouseLeftButtonUp"
             MouseMove="Root_MouseMove">
         <StackPanel Margin="12,8,12,8">
-            <!-- 头部：组件名称（点击切换页面）+ 状态点 + [刷新][编辑][锁定] -->
-            <DockPanel Margin="0,0,0,6">
-                <Button x:Name="LockBtn" DockPanel.Dock="Right" Padding="8,1" Background="Transparent"
+            <!-- 头部：组件名称（点击切换页面）+ [刷新][编辑][锁定] -->
+            <DockPanel Margin="0,0,0,6" LastChildFill="False">
+                <Button x:Name="LockBtn" DockPanel.Dock="Right" Padding="4,1,0,1" Background="Transparent"
                         BorderThickness="0" Foreground="#8A8F98" Cursor="Hand" Click="Lock_Click"
                         ToolTip="锁定：不可拖动且置顶">
                     <Path Stroke="{Binding Foreground, ElementName=LockBtn}" StrokeThickness="1.2"
                           Width="11" Height="12" Stretch="Uniform"
                           Data="M2,5.5 h7 v5.5 h-7 z M3.6,5.5 V4 a1.9,1.9 0 0 1 3.8,0 v1.5"/>
                 </Button>
-                <Button DockPanel.Dock="Right" Content="编辑" Padding="8,1" FontSize="11"
+                <Button DockPanel.Dock="Right" Content="编辑" Padding="4,1" FontSize="11"
                         Background="Transparent" BorderThickness="0" Foreground="#8FAFDB"
                         Cursor="Hand" Click="OpenPanel_Click" ToolTip="打开编辑面板（页面/诊断）"/>
-                <Button DockPanel.Dock="Right" Content="刷新" Padding="8,1" FontSize="11"
+                <Button DockPanel.Dock="Right" Content="刷新" Padding="4,1" FontSize="11"
                         Background="Transparent" BorderThickness="0" Foreground="#8FAFDB"
-                        Cursor="Hand" Click="Refresh_Click" Margin="0,0,4,0" ToolTip="强制刷新获取最新信息"/>
-                <Button x:Name="AccountBtn" DockPanel.Dock="Left" Content="{Binding AccountName}"
-                        Padding="0,1" FontSize="11" FontWeight="SemiBold"
+                        Cursor="Hand" Click="Refresh_Click" ToolTip="强制刷新获取最新信息"/>
+                <Button x:Name="AccountBtn" DockPanel.Dock="Left" Margin="0,0,8,0"
+                        Padding="0,1" FontSize="14" FontWeight="SemiBold" HorizontalContentAlignment="Left"
                         Background="Transparent" BorderThickness="0" Foreground="#EEF1F5"
-                        Cursor="Hand" Click="AccountBtn_Click" ToolTip="单击切换页面"/>
-                <Ellipse DockPanel.Dock="Left" Width="10" Height="10" VerticalAlignment="Center" Margin="6,0,0,0"
-                         Fill="{Binding Connection, Converter={StaticResource ConnBrush}}"/>
-                <TextBlock Text="{Binding ConnectionLabel}" Foreground="#8A8F98" FontSize="11"
-                           VerticalAlignment="Center" Margin="6,0,6,0"/>
+                        Cursor="Hand" Click="AccountBtn_Click" ToolTip="{Binding AccountName}">
+                    <TextBlock Text="{Binding AccountName}" TextTrimming="CharacterEllipsis"/>
+                </Button>
             </DockPanel>
 
             <!-- 窗口能力：按快照动态列出（名称与数量来自快照，不预设 5h/周/月）；余额栏紧随窗口行 -->
             <StackPanel Visibility="{Binding Snapshot.HasWindowsOrBalance, Converter={StaticResource BoolVis}}">
-                <ItemsControl ItemsSource="{Binding Snapshot.Windows}">
+                <ItemsControl ItemsSource="{Binding Snapshot.Windows}" Grid.IsSharedSizeScope="True">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,5,0,3">
                                 <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
                                 <Grid Margin="0,3,0,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="WindowUsage"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="WindowCountdown"/>
                                     </Grid.ColumnDefinitions>
                                     <ProgressBar Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
                                         Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
                                         Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
                                 </Grid>
-                                <TextBlock Text="{Binding Status}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
-                                    Visibility="{Binding Status, Converter={StaticResource StrVis}}"/>
+                                <TextBlock Text="{Binding Status}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="{Binding Status, Converter={StaticResource StrVis}}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Status}" Value="正常">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <TextBlock Text="{Binding AbsoluteLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
                                     Visibility="{Binding AbsoluteLabel, Converter={StaticResource StrVis}}"/>
                             </StackPanel>
@@ -62,28 +74,55 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <!-- 余额/额度：紧随窗口行（周窗口下），无语义区分窗口来源 -->
-                <TextBlock Text="{Binding Snapshot.BalanceLabel}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
-                           Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,2,0,0"/>
+                <ItemsControl ItemsSource="{Binding Snapshot.BalanceRows}"
+                              Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,2,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="{Binding Name}" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Value}" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
+                                           TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Detail}" Foreground="#8A8F98" FontSize="10"
+                                           TextWrapping="Wrap" Margin="0,2,0,0" Visibility="{Binding Detail, Converter={StaticResource StrVis}}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
 
             <!-- 今日用量：总量 + 金额 + 模型行（线上拉取） -->
             <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
-                <DockPanel>
-                    <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11"/>
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}" Foreground="#EEF1F5"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11" Margin="0,0,8,0"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Snapshot.ReportedUsageLabel}" Foreground="#EEF1F5"
                                FontWeight="SemiBold" FontSize="12"/>
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.TotalCostLabel}" Foreground="#7FC9A0"
-                               FontSize="11" Margin="8,0,0,0"/>
-                </DockPanel>
+                </Grid>
+                <Grid Margin="0,2,0,0" Visibility="{Binding Snapshot.TotalCostLabel, Converter={StaticResource StrVis}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="金额" Foreground="#7FC9A0" FontSize="11" Margin="0,0,8,0"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Snapshot.TotalCostValueLabel}" Foreground="#7FC9A0" FontSize="11"
+                               TextAlignment="Right" TextWrapping="Wrap"/>
+                </Grid>
                 <TextBlock Text="{Binding Snapshot.UsagePeriodLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                        <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,2,0,0">
+                <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,2,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,2,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Grid.Column="1" Text="{Binding TokensLabel}" Foreground="#EEF1F5"
                                            FontSize="11" FontWeight="SemiBold" Margin="8,0,0,0"/>
                             </Grid>
@@ -92,13 +131,21 @@
                 </ItemsControl>
             </StackPanel>
 
-            <!-- 状态条：连接正常但无用量 / 需要鉴权 / 数据过期 / 暂无数据 -->
-            <TextBlock Text="{Binding Snapshot.StatusLabel}" Foreground="#9A9A9A" FontSize="11"
-                       Margin="0,6,0,0" TextWrapping="Wrap"/>
-
-            <!-- 底部：最后更新时间 -->
-            <TextBlock HorizontalAlignment="Right" Text="{Binding LastSuccessLabel}" Foreground="#EEF1F5" FontSize="11"
-                       Margin="0,6,0,0"/>
+            <!-- 底部：页面整体状态与最后更新时间 -->
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <DockPanel Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Ellipse DockPanel.Dock="Left" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,8,0"
+                             Fill="{Binding Connection, Converter={StaticResource ConnBrush}}"/>
+                    <TextBlock Text="{Binding ConnectionLabel}" ToolTip="{Binding ConnectionLabel}"
+                               Foreground="#9A9A9A" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <TextBlock Grid.Column="1" Text="{Binding LastSuccessLabel}" Foreground="#EEF1F5" FontSize="11"
+                           VerticalAlignment="Center"/>
+            </Grid>
         </StackPanel>
     </Border>
 </Window>

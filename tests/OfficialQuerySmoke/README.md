@@ -2,7 +2,7 @@
 
 默认使用内存配置和合成数据，不接触已安装应用的配置、凭据或托盘，也不打开测试窗口。程序实例化正式 WPF 面板与小组件，验证凭据选择及保存，再输出 PNG 供人工检查。
 
-共输出七张 PNG，包括凭据表单、小组件以及候选方法链在首次扫描、重新扫描和全部不可用时的显示结果。
+共输出九张 PNG，包括凭据表单、小组件、长标题与多币种额度的对齐场景，以及候选方法链在首次扫描、重新扫描和全部不可用时的显示结果。
 
 ```powershell
 dotnet run --project tests/OfficialQuerySmoke/OfficialQuerySmoke.csproj -c Release -- artifacts/official-query-verification
