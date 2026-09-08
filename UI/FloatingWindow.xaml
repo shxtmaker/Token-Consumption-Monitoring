@@ -41,39 +41,42 @@
                 <ItemsControl ItemsSource="{Binding Snapshot.Windows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,2,0,2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="58"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="34"/><ColumnDefinition Width="92"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Name}" Foreground="#C7CBD3" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                <ProgressBar Grid.Column="1" Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
-                                             Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
-                                             Foreground="{Binding Level, Converter={StaticResource LevelBrush}}"
-                                             VerticalAlignment="Center" Margin="4,0"/>
-                                <TextBlock Grid.Column="2" Text="{Binding PercentLabel}" Foreground="#EEF1F5"
-                                           FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-                                <TextBlock Grid.Column="3" Text="{Binding Countdown}" Foreground="#EEF1F5" FontSize="11"
-                                           Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                            </Grid>
+                            <StackPanel Margin="0,5,0,3">
+                                <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <Grid Margin="0,3,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ProgressBar Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
+                                        Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
+                                        Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                                <TextBlock Text="{Binding Status}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
+                                    Visibility="{Binding Status, Converter={StaticResource StrVis}}"/>
+                                <TextBlock Text="{Binding AbsoluteLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
+                                    Visibility="{Binding AbsoluteLabel, Converter={StaticResource StrVis}}"/>
+                            </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <!-- 余额/额度：紧随窗口行（周窗口下），无语义区分窗口来源 -->
-                <TextBlock Text="{Binding Snapshot.BalanceLabel}" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Text="{Binding Snapshot.BalanceLabel}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="12" FontWeight="SemiBold"
                            Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,2,0,0"/>
             </StackPanel>
 
             <!-- 今日用量：总量 + 金额 + 模型行（线上拉取） -->
             <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
                 <DockPanel>
-                    <TextBlock Text="今日用量" Foreground="#C7CBD3" FontSize="11"/>
+                    <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}" Foreground="#EEF1F5"
                                FontWeight="SemiBold" FontSize="12"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.TotalCostLabel}" Foreground="#7FC9A0"
                                FontSize="11" Margin="8,0,0,0"/>
                 </DockPanel>
-                <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,2,0,0">
+                <TextBlock Text="{Binding Snapshot.UsagePeriodLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                        <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,2,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,2,0,0">

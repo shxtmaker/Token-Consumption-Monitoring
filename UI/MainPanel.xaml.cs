@@ -53,6 +53,7 @@ public partial class MainPanel : Window
         _configurationDiagnostic = configurationDiagnostic;
         DataContext = state;
 
+        PCredentialCombo.SelectedValue = CredentialClass.ApiKey.ToString();
         PProtocolCombo.ItemsSource = Enum.GetValues<KeyFormat.Protocol>();
         PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
         PCompatibilityBox.IsChecked = false;
@@ -131,6 +132,7 @@ public partial class MainPanel : Window
 
     private void ClearForm()
     {
+        PCredentialCombo.SelectedValue = CredentialClass.ApiKey.ToString();
         _loadedSecret = "";
         PNameBox.Text = "";
         PBaseUrlBox.Text = "";
@@ -144,6 +146,8 @@ public partial class MainPanel : Window
 
     private void FillForm(PageConfigRecord page)
     {
+        PCredentialCombo.SelectedValue = ((CredentialReference.IsSecretKey(page.CredentialRef.ResolveClass()) || page.CredentialRef.ResolveClass() == CredentialClass.LocalRecord)
+            ? page.CredentialRef.ResolveClass() : CredentialClass.ApiKey).ToString();
         PNameBox.Text = page.Name;
         PBaseUrlBox.Text = page.BaseUrl;
         PProtocolCombo.SelectedItem = page.ParseProtocol();
@@ -160,10 +164,19 @@ public partial class MainPanel : Window
     private void RefreshFormHints()
     {
         var provider = Services.Scanning.CredentialResolver.ProviderOf(PBaseUrlBox.Text);
-        PProviderHint.Text = PBaseUrlBox.Text.Length == 0
+        PProviderHint.Text = _editor.KeyClass == CredentialClass.LocalRecord ? "来源：本机 Codex CLI 登录账户"
+            : PBaseUrlBox.Text.Length == 0
             ? "输入 Base URL 后自动识别供应商提示（自动扫描会按能力选择查询方法）"
             : $"识别提示：{(provider ?? "自定义/通用")} · {KeyFormat.Describe(_protocol)}";
-        PKeyHint.Text = KeyFormat.KeyHint(_protocol);
+        PCredentialHint.Text = _editor.KeyClass switch
+        {
+            CredentialClass.LocalRecord => "读取本机 Codex CLI 的登录账户。请先安装 Codex CLI 并完成登录。",
+            CredentialClass.AdminKey => "组织统计覆盖该密钥的授权范围，不代表个人聊天订阅额度。",
+            CredentialClass.ManagementKey => "使用账户管理密钥查询余额或 credits，不参与模型探测。",
+            _ => "使用服务方为此端点签发的普通 API Key。",
+        };
+        PKeyHint.Text = _editor.KeyClass == CredentialClass.LocalRecord ? "无需填写密钥"
+            : _editor.KeyClass != CredentialClass.ApiKey ? "填写所选类型的管理密钥" : KeyFormat.KeyHint(_protocol);
         PKeyHint.Visibility = _protocol == KeyFormat.Protocol.DeepSeekConsole ? Visibility.Collapsed : Visibility.Visible;
         PModelsHint.Text = _modelDraft.Count == 0 ? "点击「+ 添加模型」或「自动拉取」" : $"{_modelDraft.Count} 个模型";
     }
@@ -191,10 +204,28 @@ public partial class MainPanel : Window
         }
     }
 
+    private void PCredentialCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Enum.TryParse<CredentialClass>(PCredentialCombo.SelectedValue?.ToString(), out var kind))
+        {
+            _editor.KeyClass = kind;
+            if (kind == CredentialClass.LocalRecord && PBaseUrlBox is not null && PBaseUrlBox.Text.Length == 0)
+                PBaseUrlBox.Text = "https://chatgpt.com";
+            if (PKeyBox is not null) PKeyBox.IsEnabled = kind != CredentialClass.LocalRecord;
+            if (PProtocolCombo is not null)
+            {
+                PProtocolCombo.IsEnabled = kind != CredentialClass.LocalRecord;
+                if (kind == CredentialClass.LocalRecord) PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
+            }
+            if (PModelsHint is not null) RefreshFormHints();
+        }
+    }
+
     private void PKeyBox_PasswordChanged(object sender, RoutedEventArgs e)
     {
-        if (PKeyBox.Password.Length == 0) { PKeyHint.Text = KeyFormat.KeyHint(_protocol); return; }
-        var (valid, hint) = KeyFormat.Validate(_protocol, PKeyBox.Password);
+        if (PKeyBox.Password.Length == 0) { RefreshFormHints(); return; }
+        var valid = !PKeyBox.Password.Any(char.IsWhiteSpace);
+        var hint = valid ? "密钥格式可提交，权限将在查询时验证" : "密钥不能包含空白字符";
         PKeyHint.Text = hint;
         PKeyHint.Foreground = valid
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x7F, 0xC9, 0xA0))
@@ -258,6 +289,11 @@ public partial class MainPanel : Window
 
     private async void PFetchModels_Click(object sender, RoutedEventArgs e)
     {
+        if (_editor.KeyClass != CredentialClass.ApiKey)
+        {
+            PModelsHint.Text = "管理密钥不能用于模型列表探测";
+            return;
+        }
         PModelsHint.Text = "正在拉取模型列表…";
         try
         {
@@ -325,6 +361,12 @@ public partial class MainPanel : Window
 
     private void Login_Click(object sender, RoutedEventArgs e)
     {
+        if (_editor.KeyClass == CredentialClass.LocalRecord)
+        {
+            MessageBox.Show("请在终端运行 codex login 完成本机登录，然后重新扫描页面。",
+                "Codex 登录", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         // 「登录」按钮只存在于编辑表单内：以表单当前协议判定。
         // 新建/编辑未保存时活动页的凭据类别仍是旧值，按保存态判定会让
         // 新建 DeepSeek 控制台页的登录被当成 API Key 页处理（用户视角 = 点了没反应）。

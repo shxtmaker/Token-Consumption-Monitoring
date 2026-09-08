@@ -136,6 +136,54 @@ public sealed class PageConfigurationCommandTests
         Assert.False(editor.IsSaving);
     }
 
+    [Theory]
+    [InlineData(CredentialClass.AdminKey)]
+    [InlineData(CredentialClass.ManagementKey)]
+    [InlineData(CredentialClass.ServiceAccountKey)]
+    public void TypedKeys_PreserveClassAcrossSaveEditAndReload(CredentialClass kind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tcm_typed_" + Guid.NewGuid().ToString("N"));
+        var secrets = new Secrets();
+        try
+        {
+            var store = new PageConfigStore(directory);
+            var catalog = new PageCatalog(store.Load().Document.Pages);
+            var commands = new PageConfigurationCommands(catalog, store, secrets);
+            var editor = new TokenConsumptionMonitoring.UI.PageEditorViewModel
+            { Name = "Organization", BaseUrl = "https://api.openai.com", KeyClass = kind };
+            Assert.True(editor.Save(commands, "test-admin-secret").Succeeded);
+            var page = catalog.Snapshot().Single();
+            Assert.Equal(kind, page.CredentialRef.ResolveClass());
+            Assert.Equal("test-admin-secret", commands.ReadApiKeyForEditing(page));
+            Assert.Equal(kind, new PageConfigStore(directory).Load().Document.Pages.Single().CredentialRef.ResolveClass());
+            editor.Editing = page;
+            editor.LoadedSecret = "test-admin-secret";
+            editor.Name = "Renamed";
+            Assert.True(editor.Save(commands, "test-admin-secret").Succeeded);
+            Assert.Equal(1, secrets.Writes);
+            Assert.Equal(page.CredentialRef, catalog.Snapshot().Single().CredentialRef);
+            editor.Editing = catalog.Snapshot().Single();
+            editor.KeyClass = CredentialClass.ApiKey;
+            Assert.False(editor.Save(commands, "test-admin-secret").Succeeded);
+            Assert.Equal(1, secrets.Writes);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void ThirdPartyAnthropicProtocol_DoesNotRequireAnAnthropicBrandedKey()
+    {
+        var secrets = new Secrets();
+        var catalog = new PageCatalog([]);
+        var editor = new TokenConsumptionMonitoring.UI.PageEditorViewModel
+        {
+            Name = "Z.ai", BaseUrl = "https://api.z.ai/api/anthropic",
+            Protocol = KeyFormat.Protocol.Anthropic,
+        };
+        Assert.True(editor.Save(new PageConfigurationCommands(catalog, new Persistence(secrets), secrets), "vendor-specific-key").Succeeded);
+        Assert.Equal(CredentialClass.ApiKey, catalog.Snapshot().Single().CredentialRef.ResolveClass());
+    }
+
     private sealed class Secrets : IPageCredentialStore
     {
         public bool TryRead(string target, out string? secret) => Values.TryGetValue(target, out secret);

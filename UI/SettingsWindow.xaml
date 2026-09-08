@@ -46,7 +46,7 @@
             <CheckBox x:Name="WidgetBox" Grid.Column="2" Content="桌面组件" Foreground="#C7CBD3" IsChecked="True"
                       VerticalAlignment="Center"
                       Checked="WidgetBox_Changed" Unchecked="WidgetBox_Changed"/>
-            <CheckBox x:Name="DailyTokensBox" Grid.Column="4" Content="今日用量" Foreground="#C7CBD3" IsChecked="True"
+            <CheckBox x:Name="DailyTokensBox" Grid.Column="4" Content="报告用量" Foreground="#C7CBD3" IsChecked="True"
                       VerticalAlignment="Center"
                       Checked="DailyTokensBox_Changed" Unchecked="DailyTokensBox_Changed"/>
         </Grid>

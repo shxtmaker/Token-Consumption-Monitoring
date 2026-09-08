@@ -22,7 +22,7 @@ public sealed class PageConfigurationCommands(
     PageCatalog catalog, IPageConfigurationPersistence persistence, IPageCredentialStore credentials)
 {
     public string ReadApiKeyForEditing(PageConfigRecord page)
-        => page.CredentialRef.ResolveClass() == CredentialClass.ApiKey
+        => CredentialReference.IsSecretKey(page.CredentialRef.ResolveClass())
             && page.CredentialRef.Target is { Length: > 0 } target
             && credentials.TryRead(target, out var secret) ? secret ?? "" : "";
 
@@ -33,7 +33,9 @@ public sealed class PageConfigurationCommands(
         if (newSecret is not null)
         {
             newTarget = AppIdentity.ApiKeyTarget(prepared.Id) + ".v." + Guid.NewGuid().ToString("N");
-            prepared.CredentialRef = CredentialReference.ApiKeyTarget(newTarget);
+            var kind = prepared.CredentialRef.ResolveClass();
+            prepared.CredentialRef = CredentialReference.SecretKey(newTarget,
+                CredentialReference.IsSecretKey(kind) ? kind : CredentialClass.ApiKey);
         }
         return catalog.Save(prepared, expectedRevision, document =>
         {

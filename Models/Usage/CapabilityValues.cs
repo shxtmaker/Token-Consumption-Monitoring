@@ -62,7 +62,7 @@ public sealed record ReportedUsageValue(
     bool IsPrivate,
     bool IsEstimated,
     long TotalTokens,
-    long TotalRequests,
+    long? TotalRequests,
     IReadOnlyList<ModelUsageRow> Models,
     DateTimeOffset? ExpiresAt = null)
     : CapabilityValue(Kind, Source, CredentialScope, Coverage, FetchedAt, Confidence, IsPrivate, IsEstimated, ExpiresAt);

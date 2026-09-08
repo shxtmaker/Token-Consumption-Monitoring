@@ -20,7 +20,7 @@ public sealed class ScanDiagnosticsViewModel : INotifyPropertyChanged
     public bool RequiresSelection { get; private set; }
     public bool IsScanning { get; private set; }
     public bool HasCandidates => Candidates.Count > 0;
-    public string CandidateCountLabel => $"{Candidates.Count} 个候选";
+    public string CandidateCountLabel => $"{Candidates.Count} 个可用";
     public string ConfigText { get; private set; } = "";
     public string[] CapabilityLegend => new[] { "窗口", "余额/额度", "用量", "费用", "探测" };
 
@@ -75,11 +75,11 @@ public sealed class ScanDiagnosticsViewModel : INotifyPropertyChanged
                     _ => "未发现可用查询方法",
                 };
 
-        // 重建候选链
+        // 仅投影本次扫描可用的方法；完整报告继续保留诊断和来源选择依据。
         Candidates.Clear();
         var effective = report.SelectedMethodIds.Values.ToHashSet(StringComparer.Ordinal);
         if (effectiveMethodId is not null) effective.Add(effectiveMethodId);
-        foreach (var c in report.Candidates)
+        foreach (var c in report.Candidates.Where(candidate => candidate.IsAvailable))
             Candidates.Add(new MethodCandidateViewModel(c, effective));
 
         Notify(nameof(Fingerprint), nameof(ScannedAtLabel), nameof(SelectionLabel), nameof(RequiresSelection), nameof(HasCandidates), nameof(CandidateCountLabel), nameof(ConfigText));

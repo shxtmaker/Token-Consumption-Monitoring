@@ -22,7 +22,7 @@ public sealed class DeepSeekConsoleUsageOnlineMethod : IQueryMethod
         SourceKind.ConsoleOrPrivateUI,
         CredentialClass.ConsoleSession,
         QueryMethodDescriptor.CapabilitiesOf(CapabilityKind.ReportedUsage, CapabilityKind.ReportedCost),
-        SourceStability.OfficialStable,
+        SourceStability.PrivateCompat,
         MethodEnablement.Always,
         DefaultPriority: 20,
         MethodSupport.ImplementationVersion);

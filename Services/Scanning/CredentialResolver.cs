@@ -23,9 +23,12 @@ public sealed class CredentialResolver
     public bool HasApiKey => !string.IsNullOrEmpty(ReadApiKey());
 
     /// <summary>读取页面 API key 原文（仅方法内部使用，禁止日志/缓存）。</summary>
-    public string? ReadApiKey()
+    public string? ReadApiKey() => ReadSecret(CredentialClass.ApiKey);
+
+    public string? ReadSecret(CredentialClass requiredClass)
     {
-        if (DeclaredClass != CredentialClass.ApiKey) return null;
+        if (DeclaredClass != requiredClass || !CredentialReference.IsSecretKey(requiredClass)
+            || string.IsNullOrWhiteSpace(Reference.Target)) return null;
         return CredentialStore.TryReadSecret(Reference.Target!, out var key) && !string.IsNullOrWhiteSpace(key)
             ? key : null;
     }
@@ -60,9 +63,16 @@ public sealed class CredentialResolver
             ("anthropic.com", "anthropic"),
             ("x.ai", "xai"),
             ("fireworks.ai", "fireworks"),
+            ("siliconflow.cn", "siliconflow"),
+            ("siliconflow.com", "siliconflow"),
+            ("moonshot.cn", "moonshot"),
+            ("moonshot.ai", "moonshot"),
+            ("minimaxi.com", "minimax"),
+            ("minimax.io", "minimax"),
         })
         {
-            if (host.Contains(key, StringComparison.OrdinalIgnoreCase)) return provider;
+            if (host.Equals(key, StringComparison.OrdinalIgnoreCase)
+                || host.EndsWith("." + key, StringComparison.OrdinalIgnoreCase)) return provider;
         }
         return null;
     }

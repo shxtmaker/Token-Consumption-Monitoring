@@ -212,4 +212,8 @@ public enum CredentialRefKind
 
     /// <summary>本地记录（无需 Windows 凭据，只读本机文件）。</summary>
     LocalRecord,
+
+    AdminKeyTarget,
+    ManagementKeyTarget,
+    ServiceAccountKeyTarget,
 }

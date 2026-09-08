@@ -144,6 +144,17 @@ public sealed record CredentialReference(CredentialRefKind Kind, string? Target 
     public static CredentialReference LocalRecord { get; } = new(CredentialRefKind.LocalRecord);
 
     /// <summary>解析出的凭据类别（供方法与候选过滤使用；不读取秘密原文）。</summary>
+    public static bool IsSecretKey(CredentialClass kind) => kind is CredentialClass.ApiKey or CredentialClass.AdminKey or CredentialClass.ManagementKey or CredentialClass.ServiceAccountKey;
+
+    public static CredentialReference SecretKey(string target, CredentialClass kind) => new(kind switch
+    {
+        CredentialClass.ApiKey => CredentialRefKind.ApiKeyTarget,
+        CredentialClass.AdminKey => CredentialRefKind.AdminKeyTarget,
+        CredentialClass.ManagementKey => CredentialRefKind.ManagementKeyTarget,
+        CredentialClass.ServiceAccountKey => CredentialRefKind.ServiceAccountKeyTarget,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    }, target);
+
     public CredentialClass ResolveClass() => Kind switch
     {
         CredentialRefKind.None => CredentialClass.None,
@@ -152,6 +163,9 @@ public sealed record CredentialReference(CredentialRefKind Kind, string? Target 
         CredentialRefKind.GlobalOAuth => CredentialClass.OAuthSession,
         CredentialRefKind.GlobalConsoleSession => CredentialClass.ConsoleSession,
         CredentialRefKind.LocalRecord => CredentialClass.LocalRecord,
+        CredentialRefKind.AdminKeyTarget => CredentialClass.AdminKey,
+        CredentialRefKind.ManagementKeyTarget => CredentialClass.ManagementKey,
+        CredentialRefKind.ServiceAccountKeyTarget => CredentialClass.ServiceAccountKey,
         _ => CredentialClass.None,
     };
 }

@@ -19,6 +19,7 @@ public sealed class WindowRowViewModel : INotifyPropertyChanged
 
     public bool HasData => Percent >= 0;
     public string PercentLabel => Percent < 0 ? "--" : $"{Percent}%";
+    public string UsedLabel => Percent < 0 ? "--" : $"已用 {Percent}%";
     public string RemainingLabel => Percent < 0 ? "--" : $"{Math.Max(0, 100 - Percent)}%";
 
     // 倒计时拆分槽位（值定宽右对齐 + 单位定宽）：保证多行左右边缘严格对齐
@@ -60,7 +61,7 @@ public sealed class WindowRowViewModel : INotifyPropertyChanged
         Level = level;
         LimitMicroCents = w.Limit;
         RemainingMicroCents = w.Remaining;
-        Notify(nameof(Percent), nameof(PercentLabel), nameof(RemainingLabel), nameof(Level), nameof(AbsoluteLabel));
+        Notify(nameof(Percent), nameof(PercentLabel), nameof(UsedLabel), nameof(Status), nameof(RemainingLabel), nameof(Level), nameof(AbsoluteLabel));
         UpdateCountdown();
     }
 

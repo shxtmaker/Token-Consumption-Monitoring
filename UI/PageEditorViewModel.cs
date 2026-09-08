@@ -16,6 +16,7 @@ public sealed class PageEditorViewModel
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
     public KeyFormat.Protocol Protocol { get; set; }
+    public CredentialClass KeyClass { get; set; } = CredentialClass.ApiKey;
     public bool EnableCompatibility { get; set; }
     public List<string> Models { get; } = new();
     public string LoadedSecret { get; set; } = "";
@@ -41,16 +42,27 @@ public sealed class PageEditorViewModel
                 ? new(Editing.EnabledCompatibilityMethods) : CompatibilityMethods.ToList()
             : new();
         string? newSecret = null;
-        if (Protocol == KeyFormat.Protocol.DeepSeekConsole)
+        if (KeyClass == CredentialClass.LocalRecord)
+        {
+            page.CredentialRef = CredentialReference.LocalRecord;
+            if (!Services.QueryMethods.CodexAccountMethod.Matches(page))
+                return Invalid("本机 Codex 登录请使用 https://chatgpt.com");
+            page.Protocol = KeyFormat.Protocol.ChatCompletions.ToString();
+        }
+        else if (Protocol == KeyFormat.Protocol.DeepSeekConsole)
             page.CredentialRef = CredentialReference.GlobalConsoleSession(AppIdentity.DeepSeekCookiesTarget);
         else
         {
-            var existingKey = Editing?.CredentialRef.ResolveClass() == CredentialClass.ApiKey;
+            if (!CredentialReference.IsSecretKey(KeyClass)) return Invalid("请选择有效的凭据类型");
+            var existingKey = Editing?.CredentialRef.ResolveClass() == KeyClass;
+            if (!existingKey && Editing is not null && secret.Length > 0 && secret == LoadedSecret)
+                return Invalid("切换凭据类型后，请输入对应类型的新密钥");
             if (secret.Length == 0 && !existingKey) return Invalid("请输入 API Key");
-            page.CredentialRef = existingKey ? Editing!.CredentialRef : CredentialReference.PageApiKey(page.Id);
+            page.CredentialRef = existingKey ? Editing!.CredentialRef : CredentialReference.SecretKey(AppIdentity.ApiKeyTarget(page.Id), KeyClass);
             if (secret.Length > 0)
             {
-                var (valid, hint) = KeyFormat.Validate(Protocol, secret);
+                var (valid, hint) = (!string.IsNullOrWhiteSpace(secret) && !secret.Any(char.IsWhiteSpace),
+                    "密钥不能包含空白字符");
                 if (!valid) return Invalid($"API Key 无效：{hint}");
                 if (!existingKey || secret != LoadedSecret) newSecret = secret;
             }

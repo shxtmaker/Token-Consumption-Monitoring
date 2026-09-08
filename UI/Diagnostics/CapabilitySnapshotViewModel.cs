@@ -26,6 +26,7 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
     public bool HasProbeMessage => !string.IsNullOrEmpty(StatusMessage);
 
     public string ReportedUsageLabel { get; private set; } = "";
+    public string UsagePeriodLabel { get; private set; } = "";
     public long TotalTokens { get; private set; }
     public string TotalCostLabel { get; private set; } = "";
     public bool ReportedUsagePresent { get; private set; }
@@ -61,6 +62,7 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
         if (!showDailyUsage) usage = null;
         ReportedUsagePresent = usage is not null;
         TotalTokens = usage?.TotalTokens ?? 0;
+        UsagePeriodLabel = usage is null ? "" : PeriodLabel(usage.Coverage);
         ReportedUsageLabel = usage is null ? "" : FormatTokens(usage.TotalTokens);
         TotalCostLabel = usage is null || usage.Models.All(m => m.Cost is null)
             ? "" : $"金额 ¥{usage.Models.Sum(m => m.Cost ?? 0):F2}";
@@ -79,15 +81,15 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
         ReportedCostRows.Clear();
         foreach (var cost in snapshot.ReportedCosts)
             if (!cost.IsEstimated)
-                ReportedCostRows.Add(new ReportedCostRowViewModel(cost.Amount, cost.Currency));
+                ReportedCostRows.Add(new ReportedCostRowViewModel(cost.Amount, cost.Currency, PeriodLabel(cost.Coverage)));
 
         // 余额/额度（独立区块；多来源不合并，取首选来源）
-        var balance = snapshot.Balances.FirstOrDefault();
-        BalanceLabel = "";
-        if (balance is not null && balance.Balance is { } b)
-            BalanceLabel = $"余额 {b:F2} {balance.Currency}".Trim();
-        else if (balance is not null && balance.Remaining is { } r && balance.Limit is { } l)
-            BalanceLabel = $"剩余 {r:0.##} / {l:0.##} {balance.Currency}".Trim();
+        BalanceLabel = string.Join("\n", snapshot.Balances.Select(balance =>
+            balance.Balance is { } b ? $"余额 {b:0.####} {balance.Currency}"
+            : balance.Remaining is { } r && balance.Limit is { } l ? $"剩余 {r:0.####} / {l:0.####} {balance.Currency} · {balance.Coverage.Scope}"
+            : balance.Remaining is { } remaining ? $"剩余 {remaining:0.####} {balance.Currency}"
+            : balance.Limit is { } limit ? $"额度上限 {limit:0.####} {balance.Currency} · 剩余未知"
+            : "").Where(label => label.Length > 0));
 
         // 状态表达：过期/鉴权/Probe-only/暂无数据（只显示状态，不触发用量区块）
         IsStale = snapshot.IsStale;
@@ -116,7 +118,7 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
         DeepSeekRows.Clear();
 
         Notify(nameof(HasWindows), nameof(HasReportedUsage), nameof(HasReportedCosts), nameof(HasBalance), nameof(HasProbeMessage),
-            nameof(HasCapabilities), nameof(ReportedUsageLabel), nameof(BalanceLabel), nameof(StatusLabel),
+            nameof(HasCapabilities), nameof(ReportedUsageLabel), nameof(UsagePeriodLabel), nameof(BalanceLabel), nameof(StatusLabel),
             nameof(TotalCostLabel), nameof(ReportedUsagePresent), nameof(StatusMessage), nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly),
             nameof(HasWindowsOrBalance));
     }
@@ -124,14 +126,22 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
     public void Reset()
     {
         Windows.Clear(); ModelRows.Clear(); ReportedCostRows.Clear(); DeepSeekRows.Clear();
-        ReportedUsageLabel = ""; BalanceLabel = ""; StatusMessage = "";
+        ReportedUsageLabel = ""; UsagePeriodLabel = ""; TotalCostLabel = ""; BalanceLabel = ""; StatusMessage = "";
         TotalTokens = 0; StatusLabel = "暂无数据";
         ReportedUsagePresent = false;
         IsStale = IsAuthRequired = IsProbeOnly = false;
         Notify(nameof(HasWindows), nameof(HasReportedUsage), nameof(HasReportedCosts), nameof(HasBalance), nameof(HasCapabilities),
-            nameof(HasProbeMessage), nameof(ReportedUsageLabel), nameof(TotalTokens), nameof(BalanceLabel),
+            nameof(HasProbeMessage), nameof(ReportedUsageLabel), nameof(UsagePeriodLabel), nameof(TotalTokens), nameof(BalanceLabel),
             nameof(StatusMessage), nameof(StatusLabel), nameof(TotalCostLabel), nameof(ReportedUsagePresent),
             nameof(IsStale), nameof(IsAuthRequired), nameof(IsProbeOnly), nameof(HasWindowsOrBalance));
+    }
+
+    public static string PeriodLabel(Coverage coverage)
+    {
+        var scope = coverage.Scope ?? "服务方报告范围";
+        return coverage.Start is { } start && coverage.End is { } end
+            ? $"{scope} · {start.UtcDateTime:MM-dd HH:mm}–{end.UtcDateTime:MM-dd HH:mm} UTC"
+            : scope;
     }
 
     public static string FormatTokens(long tokens)
@@ -151,11 +161,13 @@ public sealed class ReportedCostRowViewModel
 {
     public decimal Amount { get; }
     public string Currency { get; }
-    public string Label => $"{Amount:0.####} {Currency}";
+    public string Period { get; }
+    public string Label => $"{Amount:0.####} {Currency}" + (Period.Length == 0 ? "" : $" · {Period}");
 
-    public ReportedCostRowViewModel(decimal amount, string currency)
+    public ReportedCostRowViewModel(decimal amount, string currency, string period = "")
     {
         Amount = amount;
         Currency = currency;
+        Period = period;
     }
 }

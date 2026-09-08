@@ -180,6 +180,9 @@ public static class PageConfigParser
         => reference is not null
            && (reference.Kind is CredentialRefKind.PageApiKey
                or CredentialRefKind.ApiKeyTarget
+               or CredentialRefKind.AdminKeyTarget
+               or CredentialRefKind.ManagementKeyTarget
+               or CredentialRefKind.ServiceAccountKeyTarget
                or CredentialRefKind.GlobalOAuth
                or CredentialRefKind.GlobalConsoleSession)
            && string.IsNullOrWhiteSpace(reference.Target);

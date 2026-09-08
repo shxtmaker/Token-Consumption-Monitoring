@@ -1,9 +1,10 @@
 <Window x:Class="TokenConsumptionMonitoring.UI.MainPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TokenConsumptionMonitoring 面板" Width="1080" MinWidth="620" MinHeight="640" SizeToContent="Height"
+        Title="TokenConsumptionMonitoring 面板" Width="1080" MinWidth="620" MinHeight="640" Height="820" MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height}"
         WindowStyle="ToolWindow" ResizeMode="CanResize"
         Background="#FF181B20" ShowInTaskbar="False" WindowStartupLocation="CenterScreen">
+    <ScrollViewer Background="#FF181B20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -58,6 +59,14 @@
                          FontFamily="Consolas" TextChanged="PBaseUrlBox_TextChanged"/>
                 <TextBlock x:Name="PProviderHint" FontSize="10" Foreground="#8FAFDB" Margin="0,2,0,0" TextWrapping="Wrap"/>
 
+                <TextBlock Text="凭据类型" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
+                <ComboBox x:Name="PCredentialCombo" Height="26" Margin="0,3,0,0" SelectedValuePath="Tag" SelectionChanged="PCredentialCombo_SelectionChanged">
+                    <ComboBoxItem Content="本机 Codex 登录（无需填写 Key）" Tag="LocalRecord"/>
+                    <ComboBoxItem Content="普通 API Key" Tag="ApiKey"/>
+                    <ComboBoxItem Content="组织 Admin Key（组织用量与费用）" Tag="AdminKey"/>
+                    <ComboBoxItem Content="Management Key（账户管理查询）" Tag="ManagementKey"/>
+                </ComboBox>
+                <TextBlock x:Name="PCredentialHint" Text="按密钥实际权限选择凭据类型。" Foreground="#8A8F98" FontSize="10" Margin="0,3,0,0"/>
                 <TextBlock Text="API Key" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <PasswordBox x:Name="PKeyBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
                              FontFamily="Consolas" PasswordChanged="PKeyBox_PasswordChanged"/>
@@ -96,7 +105,7 @@
                             Click="Refresh_Click"/>
                     <Button Grid.Column="2" Content="取消" Padding="0,5" FontSize="11" Margin="2,0"
                             Click="PFormCancel_Click"/>
-                    <Button Grid.Column="3" Content="保存" Padding="0,5" FontSize="11" Margin="4,0,0,0"
+                    <Button x:Name="PSaveButton" Grid.Column="3" Content="保存" Padding="0,5" FontSize="11" Margin="4,0,0,0"
                             Click="FormSave_Click" ToolTip="保存后自动扫描可用查询方法"/>
                 </Grid>
             </StackPanel>
@@ -148,7 +157,7 @@
                         <TextBlock Grid.Column="1" Text="{Binding Diagnostics.CandidateCountLabel}"
                                    Foreground="#8A8F98" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
                     </Grid>
-                    <TextBlock Text="候选并列时可点击「使用此方法」临时覆盖自动选择（仅运行时生效，重扫后恢复）。"
+                    <TextBlock Text="仅列出本次扫描可用的方法。候选并列时可点击「使用此方法」临时选择；重新扫描后恢复自动选择。"
                                Foreground="#8A8F98" FontSize="10" Margin="0,6,0,4" TextWrapping="Wrap"
                                LineHeight="16" LineStackingStrategy="BlockLineHeight"/>
                     <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
@@ -205,42 +214,45 @@
                     <StackPanel Visibility="{Binding Snapshot.HasWindows, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
                         <TextBlock Text="窗口" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
                         <ItemsControl ItemsSource="{Binding Snapshot.Windows}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,4,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="64"/><ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="34"/><ColumnDefinition Width="92"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}" Foreground="#C7CBD3" FontSize="11" VerticalAlignment="Center"/>
-                                        <ProgressBar Grid.Column="1" Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
-                                                     Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
-                                                     Foreground="{Binding Level, Converter={StaticResource LevelBrush}}"
-                                                     VerticalAlignment="Center" Margin="4,0"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding PercentLabel}" Foreground="#EEF1F5"
-                                                   FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-                                        <TextBlock Grid.Column="3" Text="{Binding AbsoluteLabel}" Foreground="#C7CBD3" FontSize="10"
-                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,5,0,3">
+                                <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <Grid Margin="0,3,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ProgressBar Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
+                                        Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
+                                        Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                                <TextBlock Text="{Binding Status}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
+                                    Visibility="{Binding Status, Converter={StaticResource StrVis}}"/>
+                                <TextBlock Text="{Binding AbsoluteLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"
+                                    Visibility="{Binding AbsoluteLabel, Converter={StaticResource StrVis}}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                     </StackPanel>
 
                     <!-- 余额/额度：紧随窗口区块（周窗口下） -->
                     <StackPanel Visibility="{Binding Snapshot.HasBalance, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
                         <TextBlock Text="余额/额度" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding Snapshot.BalanceLabel}" Foreground="#7FC9A0" FontSize="12"
+                        <TextBlock Text="{Binding Snapshot.BalanceLabel}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="12"
                                    FontWeight="SemiBold" Margin="0,4,0,0"/>
                     </StackPanel>
 
                     <!-- 今日用量（线上拉取） -->
                     <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
                         <DockPanel>
-                            <TextBlock Text="今日用量" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="报告用量" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding Snapshot.ReportedUsageLabel}"
                                        Foreground="#EEF1F5" FontSize="12" FontWeight="SemiBold"/>
                         </DockPanel>
+                        <TextBlock Text="{Binding Snapshot.UsagePeriodLabel}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0"/>
                         <ItemsControl ItemsSource="{Binding Snapshot.ModelRows}" Margin="0,4,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -265,7 +277,7 @@
                         <ItemsControl ItemsSource="{Binding Snapshot.ReportedCostRows}" Margin="0,4,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Label}" Foreground="#7FC9A0" FontSize="11" Margin="0,2,0,0"/>
+                                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="11" Margin="0,2,0,0"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -274,4 +286,5 @@
             </Border>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </Window>

@@ -1,8 +1,8 @@
 # TokenConsumptionMonitoring
 
-**V1.2.3**：Windows 桌面用量与额度监控工具。应用常驻托盘，提供桌面组件和配置面板，并以能力快照统一展示不同来源的数据。
+**V1.3.0**：Windows 桌面用量与额度监控工具。应用常驻托盘，提供桌面组件和配置面板，并以能力快照统一展示不同来源的数据。
 
-本轮更新主要重构配置提交、后台刷新和故障恢复，保留原有正式界面与当前产品的数据目录。启动新构建后，页面外观和已有配置基本不变；它不是一次界面改版。
+本版本新增 OpenRouter、OpenAI、Anthropic、Moonshot、Z.ai／智谱、MiniMax 和 Codex 账户查询；首次扫描和重新扫描后的候选方法链只显示可用方法。详见[覆盖范围与配置说明](docs/query-coverage.md)。
 
 ## 安装与升级
 
@@ -12,7 +12,19 @@
 
 应用为单实例运行。测试源码构建前，请从托盘退出已安装实例，再运行构建目录中的程序；已有实例未退出时，新启动的实例会直接结束。编译源码不会自动替换安装目录中的程序或生成新版安装包。
 
-应用与安装包版本均为 `1.2.3`。安装包为 `TokenConsumptionMonitoring-Setup-1.2.3.exe`，免安装包为 `TokenConsumptionMonitoring-Portable-1.2.3.zip`，可从 [GitHub Releases](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases) 下载。
+应用与发布包版本均为 `1.3.0`，适用于 Windows x64。可从 [GitHub Releases](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases) 或 [Gitea Releases](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases) 下载；Gitea 地址需要能够访问对应局域网。
+
+| 发布文件 | 使用方式 |
+|---|---|
+| `TokenConsumptionMonitoring-Setup-1.3.0.exe` | 首次安装，或覆盖升级同一产品的安装版。 |
+| `TokenConsumptionMonitoring-Portable-1.3.0.zip` | 解压到可写目录运行。更新免安装版时，退出程序后用包内程序替换原程序。 |
+| `TokenConsumptionMonitoring-Upgrade-1.3.0.exe` | 仅用于已安装的同一产品，沿用原安装目录。没有安装记录时，请使用安装包。 |
+
+更新前从托盘退出程序。同一 Windows 用户下，三个包均使用 `%APPDATA%\TokenConsumptionMonitoring` 和 Windows 凭据存储；安装、升级和卸载不删除这些数据。免安装表示无需安装程序，不表示配置和凭据随压缩包迁移。
+
+三个包均包含 .NET 8 运行组件，无需单独安装 .NET。DeepSeek 控制台登录另需 Microsoft Edge WebView2 Runtime；发布包不捆绑该运行时。Codex 查询需要本机已有已登录的 Codex CLI，其他官方接口需要对应权限的密钥。
+
+完整项目源码包含解决方案、应用、测试、说明和打包脚本，可使用 Release 页面自动生成的源码归档。源码归档不包含个人配置、凭据、编译缓存或已打包的二进制文件。
 
 ## 架构
 
@@ -70,11 +82,23 @@ PageCatalog ──> PageEngine / PageRefreshQueue
 
 - `endpoint.probe`：通用连接、鉴权和模型目录探测，不产生用量结论。
 - `deepseek.balance.api-key`：DeepSeek 官方余额。
-- `deepseek.console-usage.online`：DeepSeek 控制台会话今日用量（线上拉取，官方账号页面常开来源）。
-- `deepseek.console-usage.compat`：DeepSeek 控制台会话用量（私有兼容，需显式启用；与新线上方法能力重叠时按来源稳定性让位）。
+- `deepseek.console-usage.online`：DeepSeek 控制台会话今日用量（私有前端接口，控制台会话来源）。
+- `deepseek.console-usage.compat`：DeepSeek 控制台会话用量（私有兼容，需显式启用；与新线上方法能力重叠时按默认优先级让位）。
 - `opencode.rolling-window.api-key`：OpenCode Go 窗口数据，需页面显式启用。
 - `opencode.allowance.oauth`：OpenCode OAuth 窗口额度，需页面显式启用。
 - `commandcode.allowance-window.compat`：Command Code 服务端返回的窗口额度及余额／credits，需页面显式启用；不从余额推算不存在的窗口或上限。
+
+新增官方及第一方客户端查询：
+
+- OpenRouter：当前 Key 额度、UTC 今日费用、Management Key 账户 credits。
+- OpenAI：Admin Key 组织模型生成用量及费用。
+- Anthropic：Admin Key 组织 Messages 用量及费用。
+- Moonshot：国内 CNY 与国际 USD 可用余额。
+- Z.ai／智谱：官方插件公开的 Token 5 小时与 MCP 月配额百分比。
+- MiniMax：Token Plan 明确报告的模型窗口及周窗口百分比。
+- Codex：通过本机已登录 CLI 读取订阅窗口及账户累计 Token。
+
+组织报表默认查询最近已完成的 UTC 日，明确标注范围；Codex 累计用量不标为今日数据。DeepSeek 余额保留全部币种，控制台来源按私有前端接口标记。默认注册表共 19 个方法，完整方法 ID、配置地址和限制见[覆盖评估](docs/query-coverage.md)。
 
 尚未实现的方法不注册为候选，不会以占位结果参与扫描或查询。
 
@@ -99,19 +123,31 @@ dotnet test tests/TokenConsumptionMonitoring.Tests/TokenConsumptionMonitoring.Te
 dotnet publish TokenConsumptionMonitoring.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-发布产物为 `TokenConsumptionMonitoring.exe`。Inno Setup 6 安装脚本位于 `packaging/TokenConsumptionMonitoring-Setup.iss`。
+发布产物为 `TokenConsumptionMonitoring.exe`。安装 Inno Setup 6 后，从项目根目录运行以下命令，可一次生成安装包、免安装包和升级包：
+
+```powershell
+pwsh ./packaging/release.ps1 -Version 1.3.0
+```
+
+脚本校验项目版本、程序文件版本和产品标识；三个发布包输出到 `dist/`。Inno Setup 不在默认路径时，可通过 `-IsccPath` 指定 `ISCC.exe`。安装脚本位于 `packaging/TokenConsumptionMonitoring-Setup.iss`。
+
+安装、升级和卸载的独立验证脚本为 `packaging/verify-packages.ps1`，使用不同于正式产品的测试安装标识。具体结果与验证边界见 [1.3.0 发布验证](docs/releases/v1.3.0-verification.md)。
 
 ## 使用
 
 1. 从托盘或桌面组件打开配置面板。
-2. 点击「新建」，填写名称、Base URL、API 格式和模型配置提示。API Key 协议需填写密钥；DeepSeekConsole 使用控制台会话。保存后自动扫描。
-3. 在候选方法链中查看来源、凭据范围、状态和诊断证据。
+2. 点击「新建」，填写名称、Base URL、API 格式和模型配置提示。选择普通 API Key、Admin Key、Management Key 或本机 Codex 登录；DeepSeekConsole 使用控制台会话。保存后自动扫描。
+3. 首次扫描或重新扫描完成后，候选方法链仅列出本次扫描可用的方法，并显示来源、凭据范围及检测证据。不可用的方法不显示；没有可用方法时，列表为空且数量为 0。
 4. 候选并列时可点击「使用此方法」临时覆盖自动选择；重新扫描后恢复自动选择。
 5. 编辑表单中的「登录」按当前表单协议处理：DeepSeekConsole 打开控制台登录窗；存在等待 OAuth 的活动页候选时打开 OpenCode 设备码流程；其他 API Key 页面提示无需登录。
 6. 托盘或表单中的「立即刷新」刷新全部页面；诊断区的「重新扫描」只处理当前页面。结果仅投影到活动页面。
 7. 面板右上角关闭按钮会隐藏面板，应用继续常驻；完全退出请使用托盘菜单的「退出」。
 
 ## 验证情况与范围
+
+2026-09-08，查询覆盖扩展通过 **136 项自动测试**，WPF 凭据选择与保存、候选列表、窄窗口和小组件渲染验证通过。本机 Codex CLI 0.153.4 的两个账户查询均真实成功。其他提供商接口通过契约与模拟 HTTP 测试，尚未使用真实账户密钥联调。详见[验证记录](docs/query-coverage-verification.md)。
+
+以下为原有 1.2.3 基线的历史验证记录。
 
 2026-09-07，本轮重构的自动化测试为 **67 项通过**，Release 构建为 **0 警告、0 错误**。测试覆盖配置与凭据提交失败、损坏配置保护、冷却、迟到结果隔离、活动页切换及停止等待等行为。
 
