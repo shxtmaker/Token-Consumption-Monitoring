@@ -93,6 +93,25 @@ internal static class Program
         var floatingRoot = (FrameworkElement)floating.Content;
         floating.Content = null;
         Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "codex-widget.png"));
+        state.ApplySnapshot(new CapabilitySnapshot
+        {
+            Metadata = new("test", "test", now, "test", RefreshReason.Poll), Status = SnapshotStatus.Success,
+            Capabilities = new CapabilityValue[]
+            {
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "short-primary", "5h 窗口", "正常", null, null, null, 24, now.AddHours(3), "%"),
+                new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, Coverage.Unknown, now, 1, false, false,
+                    "short-secondary", "周窗口", "正常", null, null, null, 61, now.AddDays(4), "%"),
+            },
+        }, true);
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "compact-short-window-widget.png"));
+        var shortWindowBars = VisualDescendants(floatingRoot).OfType<ProgressBar>().ToArray();
+        if (shortWindowBars.Length != 2 || shortWindowBars.Any(bar => bar.ActualWidth < 100))
+        {
+            var message = $"Short window titles leave insufficient progress width: {string.Join(", ", shortWindowBars.Select(bar => bar.ActualWidth.ToString("F1")))} DIP";
+            Console.Error.WriteLine(message);
+            throw new Exception(message);
+        }
         state.SetPageState(true, "DeepSeek 余额");
         state.ApplySnapshot(new CapabilitySnapshot
         {
@@ -152,8 +171,18 @@ internal static class Program
             },
         }, true);
         Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "alignment-multi-currency-quota-widget.png"));
-        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection and nine WPF renders");
+        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection, compact progress width and ten WPF renders");
         return 0;
+    }
+
+    private static IEnumerable<DependencyObject> VisualDescendants(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (var descendant in VisualDescendants(child)) yield return descendant;
+        }
     }
 
     private static async Task<int> LiveCodex()

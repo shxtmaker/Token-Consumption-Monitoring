@@ -40,20 +40,23 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,5,0,3">
-                                <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                <Grid Margin="0,3,0,0">
+                                <Grid>
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="WindowName"/>
+                                        <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="Auto" SharedSizeGroup="WindowUsage"/>
                                         <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="Auto" SharedSizeGroup="WindowCountdown"/>
                                     </Grid.ColumnDefinitions>
-                                    <ProgressBar Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
+                                    <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" Foreground="#C7CBD3" FontSize="11"
+                                               MaxWidth="86" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    <ProgressBar Grid.Column="2" Height="6" Maximum="100" BorderThickness="0" Background="#2E323A"
                                         Value="{Binding Percent, Converter={StaticResource Progress}, Mode=OneWay}"
                                         Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="4" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding UsedLabel}" Foreground="#EEF1F5" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="6" Text="{Binding Countdown}" ToolTip="重置倒计时" Foreground="#C7CBD3" FontSize="11" TextAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                 </Grid>
                                 <TextBlock Text="{Binding Status}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap">
                                     <TextBlock.Style>
