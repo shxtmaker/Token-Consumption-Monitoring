@@ -66,6 +66,9 @@
                                                 <DataTrigger Binding="{Binding Status}" Value="正常">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding Status}" Value="ok">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </TextBlock.Style>
@@ -129,6 +132,17 @@
                                 <TextBlock Grid.Column="1" Text="{Binding TokensLabel}" Foreground="#EEF1F5"
                                            FontSize="11" FontWeight="SemiBold" Margin="8,0,0,0"/>
                             </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Visibility="{Binding Snapshot.HasReportedCosts, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
+                <TextBlock Text="报告成本" Foreground="#C7CBD3" FontSize="11"/>
+                <ItemsControl ItemsSource="{Binding Snapshot.ReportedCostRows}" Margin="0,2,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="11" Margin="0,2,0,0"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

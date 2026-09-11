@@ -12,6 +12,7 @@ public enum LoginKind
     None,
     OpenCode,       // OAuth 会话（设备码）
     DeepSeekConsole,
+    FireworksConsole,
 }
 
 /// <summary>
@@ -161,7 +162,8 @@ public sealed class PageEngine : IDisposable
             || credentialClass == CredentialClass.OAuthSession
                 && page.EnabledCompatibilityMethods.Contains("opencode.allowance.oauth")
             || credentialClass == CredentialClass.ConsoleSession
-                && page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole);
+                && (page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole
+                    || page.EnabledCompatibilityMethods.Contains("fireworks.balance.console")));
         await RefreshNowAsync();
     }
 
@@ -273,6 +275,7 @@ public sealed class PageEngine : IDisposable
         {
             kind = result.AuthCredentialClass switch
             {
+                CredentialClass.ConsoleSession when QueryMethods.FireworksConsoleBalanceMethod.Matches(ActivePage?.BaseUrl ?? "") => LoginKind.FireworksConsole,
                 CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
                 CredentialClass.OAuthSession => LoginKind.OpenCode,
                 _ => LoginKind.None,

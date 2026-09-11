@@ -1,0 +1,19 @@
+<Window x:Class="TokenConsumptionMonitoring.UI.FireworksBalanceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Fireworks 余额登录" Width="1080" Height="780" MinWidth="760" MinHeight="540"
+        Background="#FF181B20" ShowInTaskbar="True">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <DockPanel Margin="12,10">
+            <Button x:Name="DoneButton" Content="完成并读取余额" DockPanel.Dock="Right" Padding="14,7" Click="Done_Click"/>
+            <TextBlock Text="请登录与此页面 API Key 对应的 Fireworks 账户。登录状态仅保存在本机。"
+                       Foreground="#E5E7EB" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        </DockPanel>
+        <TextBlock x:Name="Hint" Grid.Row="1" Foreground="#E0A52B" Margin="12,0,12,10" TextWrapping="Wrap"/>
+        <wv2:WebView2 x:Name="BrowserView" Grid.Row="2"/>
+    </Grid>
+</Window>

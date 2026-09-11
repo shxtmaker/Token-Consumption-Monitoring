@@ -29,7 +29,8 @@ public sealed class QueryMethodRegistry
         OpenCodeAuthService openCodeAuth,
         DeepSeekSessionService deepSeekSession,
         DeepSeekUsageClient deepSeekUsage,
-        CommandCodeUsageClient commandCode)
+        CommandCodeUsageClient commandCode,
+        IFireworksConsoleBalanceReader? fireworks = null)
     {
         var methods = new List<IQueryMethod>
         {
@@ -39,6 +40,8 @@ public sealed class QueryMethodRegistry
             new OpenCodeAllowanceOAuthMethod(opencode, openCodeAuth),
             new DeepSeekBalanceApiKeyMethod(),
             new MoonshotBalanceMethod(),
+            new FireworksMonthlyCostMethod(),
+            new FireworksConsoleBalanceMethod(fireworks),
             new CodexAccountMethod(),
             new CodexAccountMethod(usage: true),
             new ZaiCodingPlanMethod(),

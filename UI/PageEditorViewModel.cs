@@ -11,6 +11,7 @@ public sealed class PageEditorViewModel
     {
         "opencode.rolling-window.api-key", "opencode.allowance.oauth",
         "commandcode.allowance-window.compat", "deepseek.console-usage.compat",
+        "fireworks.balance.console",
     };
     public PageConfigRecord? Editing { get; set; }
     public string Name { get; set; } = "";

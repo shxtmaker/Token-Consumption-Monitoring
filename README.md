@@ -2,27 +2,26 @@
 
 Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配置面板，查看多个服务账户的额度窗口、Token 用量、费用与余额。
 
-当前版本：**1.3.1** · Windows x64
+当前版本：**1.3.2** · Windows x64
 
 ## 下载与安装
 
-从 [GitHub 1.3.1 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.1) 或 [Gitea 1.3.1 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.1) 下载。Gitea 地址需要能够访问对应局域网。
+从 [GitHub 1.3.2 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.2) 或 [Gitea 1.3.2 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.2) 下载。Gitea 地址需要能够访问对应局域网。
 
 | 发布文件 | 适用情况 |
 | --- | --- |
-| `TokenConsumptionMonitoring-Setup-1.3.1.exe` | 首次安装，或覆盖升级已有安装版。 |
-| `TokenConsumptionMonitoring-Portable-1.3.1.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
-| `TokenConsumptionMonitoring-Upgrade-1.3.1.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
+| `TokenConsumptionMonitoring-Setup-1.3.2.exe` | 首次安装，或覆盖升级已有安装版。 |
+| `TokenConsumptionMonitoring-Portable-1.3.2.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
+| `TokenConsumptionMonitoring-Upgrade-1.3.2.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
 
-三个包均包含 .NET 8 运行组件，无需另行安装 .NET。DeepSeek 控制台登录还需要 Microsoft Edge WebView2 Runtime；发布包不包含 WebView2 或 Codex CLI。
+三个包均包含 .NET 8 运行组件，无需另行安装 .NET。DeepSeek 和 Fireworks 控制台登录还需要 Microsoft Edge WebView2 Runtime；发布包不包含 WebView2 或 Codex CLI。
 
-## 1.3.1 更新内容
+## 1.3.2 更新内容
 
-- 缩窄桌面小组件，统一同行间距以及窗口、用量、金额、余额和更新时间的对齐方式。
-- 增大并突出页面标题，标题按钮按文字自适应；长标题省略显示，悬停可查看完整名称。
-- 页面整体状态与最后更新时间放在同一行，不再逐项重复显示“正常”；额度说明及异常信息继续保留。
-- 多币种余额、额度数值与补充说明分别排列，长内容可换行。
-
+- 新增 Fireworks AI 账户本月消费查询，以及登录控制台后读取真实 Credits 余额。
+- Fireworks 登录会话按页面隔离保存，读取余额时核对 API Key 可访问的账户，重启后自动恢复会话。
+- 小组件补全报告成本显示，并隐藏额度窗口中重复的 `ok` 状态文字。
+- 补充 OpenCode Go、Command Code 和 Fireworks 的查询配置说明。
 ## 支持的查询
 
 | 服务 | 可显示的数据 | 所需凭据或条件 |
@@ -36,6 +35,7 @@ Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配
 | Z.ai／智谱 | Token 5 小时、MCP 月配额百分比 | 支持相应配额接口的账户密钥 |
 | MiniMax | Token Plan 模型窗口及周窗口百分比 | 对应账户密钥与套餐权限 |
 | OpenCode | 滚动窗口或 OAuth 额度 | 在页面中显式启用对应查询方法 |
+| Fireworks AI | 账户本月消费、控制台 Credits 余额 | API Key；余额需启用兼容查询并登录控制台 |
 | Command Code | 服务端报告的窗口额度、余额或 credits | 在页面中显式启用兼容查询方法 |
 
 实际显示内容以服务方返回的数据和账户权限为准。组织报表默认查询最近已完成的 UTC 日；Codex 累计用量不会标为今日用量。仅连接或模型目录探测成功，不代表服务提供额度接口。
@@ -86,16 +86,17 @@ dotnet run --project tests/OfficialQuerySmoke/OfficialQuerySmoke.csproj -c Relea
 生成安装包、免安装包和升级包还需要 Inno Setup 6：
 
 ```powershell
-pwsh ./packaging/release.ps1 -Version 1.3.1
+pwsh ./packaging/release.ps1 -Version 1.3.2
 ```
 
 三个包输出到 `dist/`。Inno Setup 不在默认路径时，可用 `-IsccPath` 指定 `ISCC.exe`。源码构建不会自动替换已安装程序。
 
 ## 相关文档
 
+- [供应商数据查询与控制台登录](docs/provider-query-troubleshooting.md)
 - [查询覆盖与配置说明](docs/query-coverage.md)
 - [接口验证结果与范围](docs/query-coverage-verification.md)
-- [1.3.1 发布验证说明](docs/releases/v1.3.1-verification.md)
+- [1.3.2 发布验证说明](docs/releases/v1.3.2-verification.md)
 - [开发与架构说明](docs/architecture.md)
 - [桌面验收程序](tests/DesktopSmoke/README.md)
 

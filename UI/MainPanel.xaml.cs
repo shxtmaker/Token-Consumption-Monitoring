@@ -25,6 +25,7 @@ public partial class MainPanel : Window
 
     /// <summary>登录入口请求：由表单当前协议判定（DeepSeekConsole → 会话登录窗；None = API Key 无需登录）。</summary>
     public event Action<LoginKind>? LoginRequested;
+    public event Action<string>? FireworksLoginRequested;
     public event Action? PagesChanged;
     public event Action<string>? PageSwitchRequested;
     public event Action<string>? RescanRequested;
@@ -361,6 +362,17 @@ public partial class MainPanel : Window
 
     private void Login_Click(object sender, RoutedEventArgs e)
     {
+        if (Services.QueryMethods.FireworksConsoleBalanceMethod.Matches(PBaseUrlBox.Text.Trim()))
+        {
+            if (_editing is not { } saved || saved.BaseUrl != PBaseUrlBox.Text.Trim()
+                || !saved.EnabledCompatibilityMethods.Contains(Services.QueryMethods.FireworksConsoleBalanceMethod.MethodId))
+            {
+                MessageBox.Show("请勾选兼容额度查询并保存页面，再点击登录。", "Fireworks 余额", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            FireworksLoginRequested?.Invoke(saved.Id);
+            return;
+        }
         if (_editor.KeyClass == CredentialClass.LocalRecord)
         {
             MessageBox.Show("请在终端运行 codex login 完成本机登录，然后重新扫描页面。",

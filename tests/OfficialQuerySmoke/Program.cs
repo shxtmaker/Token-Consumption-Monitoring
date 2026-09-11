@@ -17,6 +17,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Contains("--live-codex")) return LiveCodex().GetAwaiter().GetResult();
+        if (args.Contains("--live-providers")) return LiveProviders();
         var output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/official-query-verification");
         Directory.CreateDirectory(output);
         var app = new Application();
@@ -171,7 +172,17 @@ internal static class Program
             },
         }, true);
         Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "alignment-multi-currency-quota-widget.png"));
-        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection, compact progress width and ten WPF renders");
+        state.SetPageState(true, "Fireworks AI");
+        state.ApplySnapshot(new CapabilitySnapshot
+        {
+            Metadata = new("test", "test", now, "fireworks.monthly-cost.api-key", RefreshReason.Poll),
+            Status = SnapshotStatus.Success,
+            Capabilities = [new ReportedCostValue(CapabilityKind.ReportedCost, source, scope,
+                new Coverage(null, null, Scope: "账户本月消费"), now, 1, false, false, 0.77m, "USD")],
+        }, true);
+        Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "reported-cost-widget.png"));
+        AssertVisibleCosts(floatingRoot, state);
+        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection, compact progress width, reported cost and eleven WPF renders");
         return 0;
     }
 
@@ -183,6 +194,62 @@ internal static class Program
             yield return child;
             foreach (var descendant in VisualDescendants(child)) yield return descendant;
         }
+    }
+
+    private static void AssertVisibleCosts(FrameworkElement root, MonitorState state)
+    {
+        var labels = VisualDescendants(root).OfType<TextBlock>().Where(t => t.ActualHeight > 0 && t.Visibility == Visibility.Visible)
+            .Select(t => t.Text).ToArray();
+        foreach (var row in state.Snapshot.ReportedCostRows)
+            if (!labels.Contains(row.Label)) throw new Exception("Reported cost is missing from the rendered desktop widget");
+    }
+
+    private static int LiveProviders()
+    {
+        var output = Path.GetFullPath("artifacts/live-provider-verification");
+        Directory.CreateDirectory(output);
+        var app = new Application();
+        app.Resources["ConnBrush"] = new ConnectionToBrushConverter();
+        app.Resources["LevelBrush"] = new LevelToBrushConverter();
+        app.Resources["Progress"] = new ProgressConverter();
+        app.Resources["StrVis"] = new StringToVisibilityConverter();
+        app.Resources["BoolVis"] = new BoolToVisibilityConverter();
+        var pages = new PageConfigStore().Load().Document.Pages;
+        var session = new DeepSeekSessionService(app.Dispatcher);
+        using var fireworks = new FireworksConsoleSession(app.Dispatcher);
+        var registry = QueryMethodRegistry.BuildDefault(new OpenCodeUsageClient(), new OpenCodeAuthService(new OAuthDeviceFlowClient()),
+            session, new DeepSeekUsageClient(session), new CommandCodeUsageClient(), fireworks);
+        var coordinator = new TokenConsumptionMonitoring.Services.Runtime.PageRuntimeCoordinator(registry,
+            new FingerprintBuilder(registry.Descriptors), new TokenConsumptionMonitoring.Services.Persistence.MethodStateStore(output),
+            new TokenConsumptionMonitoring.Services.Runtime.MethodResultCache());
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        app.Startup += async (_, _) =>
+        {
+          var ok = true;
+          try
+          {
+           foreach (var page in pages)
+           {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            var result = await coordinator.RefreshAsync(page, RefreshReason.Manual, timeout.Token);
+            var state = new MonitorState();
+            state.SetPageState(true, page.Name);
+            state.ApplySnapshot(result.Snapshot, true);
+            var window = new FloatingWindow();
+            var root = (FrameworkElement)window.Content;
+            window.Content = null;
+            Capture(root, state, 290, null, Path.Combine(output, page.Id + ".png"));
+            AssertVisibleCosts(root, state);
+            var pass = state.Snapshot.HasCapabilities && result.Snapshot.Status == SnapshotStatus.Success
+                && (!page.EnabledCompatibilityMethods.Contains(FireworksConsoleBalanceMethod.MethodId) || state.Snapshot.HasBalance);
+            Console.WriteLine($"{page.Name}: {(pass ? "PASS" : "FAIL")} status={result.Snapshot.Status}, windows={state.Snapshot.Windows.Count}, balances={state.Snapshot.BalanceRows.Count}, costs={state.Snapshot.ReportedCostRows.Count}");
+            ok &= pass;
+           }
+          }
+          catch (Exception ex) { Console.Error.WriteLine(ex.GetType().Name); ok = false; }
+          finally { fireworks.Dispose(); app.Shutdown(ok ? 0 : 1); }
+        };
+        return app.Run();
     }
 
     private static async Task<int> LiveCodex()

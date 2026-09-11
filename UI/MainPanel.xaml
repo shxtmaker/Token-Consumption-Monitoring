@@ -76,9 +76,9 @@
                 <ComboBox x:Name="PProtocolCombo" Height="26" Margin="0,3,0,0" FontSize="12"
                           SelectionChanged="PProtocolCombo_SelectionChanged"/>
 
-                <CheckBox x:Name="PCompatibilityBox" Content="启用私有兼容查询（高级）"
+                <CheckBox x:Name="PCompatibilityBox" Content="启用兼容额度查询（含控制台余额）"
                           Foreground="#E0A52B" FontSize="11" Margin="0,8,0,0"
-                          ToolTip="只启用明确勾选的 OpenCode Go、Command Code 或控制台兼容来源"/>
+                          ToolTip="OpenCode Go、Command Code 的额度和 Fireworks 控制台余额需要勾选此项。兼容接口可能随供应商更新而变化。"/>
 
                 <TextBlock Text="模型列表（配置提示，不用于监控展示）" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <DockPanel Margin="0,3,0,0">
@@ -100,7 +100,7 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Button Content="登录" Padding="0,5" FontSize="11" Margin="0,0,4,0" Click="Login_Click"
-                            ToolTip="DeepSeek 控制台协议 → 打开会话登录窗；API Key 协议无需登录"/>
+                            ToolTip="Fireworks 余额和 DeepSeek 控制台用量需要登录；其他普通 API Key 查询无需登录"/>
                     <Button Grid.Column="1" Content="立即刷新" Padding="0,5" FontSize="11" Margin="2,0"
                             Click="Refresh_Click"/>
                     <Button Grid.Column="2" Content="取消" Padding="0,5" FontSize="11" Margin="2,0"

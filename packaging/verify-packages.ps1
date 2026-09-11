@@ -112,7 +112,7 @@ Source: "$fixturePayload"; DestDir: "{app}"; Flags: ignoreversion
 $setup = Compile-TestPackage 'Setup' $version $PublishDirectory
 $upgrade = Compile-TestPackage 'Upgrade' $version $PublishDirectory
 $baselines = @{}
-$baselineVersions = @('1.2.2', '1.2.3', '1.3.0')
+$baselineVersions = @('1.2.2', '1.2.3', '1.3.0', '1.3.1')
 foreach ($baselineVersion in $baselineVersions) {
     $baselines[$baselineVersion] = Compile-LegacyFixture $baselineVersion
 }
