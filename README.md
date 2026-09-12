@@ -6,7 +6,7 @@ Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配
 
 ## 下载与安装
 
-从 [GitHub 1.3.2 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.2) 或 [Gitea 1.3.2 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.2) 下载。Gitea 地址需要能够访问对应局域网。
+从 [GitHub 1.3.2 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.2) 下载。
 
 | 发布文件 | 适用情况 |
 | --- | --- |
