@@ -63,6 +63,7 @@ public sealed class CredentialResolver
             ("anthropic.com", "anthropic"),
             ("x.ai", "xai"),
             ("fireworks.ai", "fireworks"),
+            ("open-design.ai", "opendesign"),
             ("siliconflow.cn", "siliconflow"),
             ("siliconflow.com", "siliconflow"),
             ("moonshot.cn", "moonshot"),

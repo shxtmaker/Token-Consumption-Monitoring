@@ -30,7 +30,8 @@ public sealed class QueryMethodRegistry
         DeepSeekSessionService deepSeekSession,
         DeepSeekUsageClient deepSeekUsage,
         CommandCodeUsageClient commandCode,
-        IFireworksConsoleBalanceReader? fireworks = null)
+        IFireworksConsoleBalanceReader? fireworks = null,
+        IOpenDesignConsoleReader? openDesign = null)
     {
         var methods = new List<IQueryMethod>
         {
@@ -42,6 +43,8 @@ public sealed class QueryMethodRegistry
             new MoonshotBalanceMethod(),
             new FireworksMonthlyCostMethod(),
             new FireworksConsoleBalanceMethod(fireworks),
+            new OpenDesignConsoleMethod(openDesign),
+            new OpenDesignConsoleMethod(openDesign, windows: true),
             new CodexAccountMethod(),
             new CodexAccountMethod(usage: true),
             new ZaiCodingPlanMethod(),

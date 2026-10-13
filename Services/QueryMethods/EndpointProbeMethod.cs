@@ -32,6 +32,8 @@ public sealed class EndpointProbeMethod : IQueryMethod
 
     public async Task<MethodCandidate> ScanAsync(PageConfigRecord page, ScanContext context, CancellationToken ct)
     {
+        if (OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))
+            return MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported, "OpenDesign 控制台不提供模型目录探测");
         var evidence = new List<DetectionEvidence>
         {
             DetectionEvidence.UrlHint($"Base URL {page.BaseUrl} 作为低置信度提示"),
@@ -60,6 +62,8 @@ public sealed class EndpointProbeMethod : IQueryMethod
 
     public async Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
     {
+        if (OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))
+            return MethodQueryResult.Empty(SnapshotStatus.NoData, "OpenDesign 控制台不提供模型目录探测");
         if (page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole)
         {
             var loggedIn = _deepSeekSession is { IsLoggedIn: true };

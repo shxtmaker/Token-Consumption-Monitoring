@@ -13,6 +13,7 @@ public enum LoginKind
     OpenCode,       // OAuth 会话（设备码）
     DeepSeekConsole,
     FireworksConsole,
+    OpenDesignConsole,
 }
 
 /// <summary>
@@ -275,6 +276,7 @@ public sealed class PageEngine : IDisposable
         {
             kind = result.AuthCredentialClass switch
             {
+                CredentialClass.ConsoleSession when QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(ActivePage?.BaseUrl ?? "", out _) => LoginKind.OpenDesignConsole,
                 CredentialClass.ConsoleSession when QueryMethods.FireworksConsoleBalanceMethod.Matches(ActivePage?.BaseUrl ?? "") => LoginKind.FireworksConsole,
                 CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
                 CredentialClass.OAuthSession => LoginKind.OpenCode,

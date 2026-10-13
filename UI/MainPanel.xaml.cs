@@ -26,6 +26,7 @@ public partial class MainPanel : Window
     /// <summary>登录入口请求：由表单当前协议判定（DeepSeekConsole → 会话登录窗；None = API Key 无需登录）。</summary>
     public event Action<LoginKind>? LoginRequested;
     public event Action<string>? FireworksLoginRequested;
+    public event Action<string>? OpenDesignLoginRequested;
     public event Action? PagesChanged;
     public event Action<string>? PageSwitchRequested;
     public event Action<string>? RescanRequested;
@@ -147,7 +148,8 @@ public partial class MainPanel : Window
 
     private void FillForm(PageConfigRecord page)
     {
-        PCredentialCombo.SelectedValue = ((CredentialReference.IsSecretKey(page.CredentialRef.ResolveClass()) || page.CredentialRef.ResolveClass() == CredentialClass.LocalRecord)
+        PCredentialCombo.SelectedValue = ((CredentialReference.IsSecretKey(page.CredentialRef.ResolveClass()) || page.CredentialRef.ResolveClass() == CredentialClass.LocalRecord
+            || page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession && Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))
             ? page.CredentialRef.ResolveClass() : CredentialClass.ApiKey).ToString();
         PNameBox.Text = page.Name;
         PBaseUrlBox.Text = page.BaseUrl;
@@ -172,11 +174,12 @@ public partial class MainPanel : Window
         PCredentialHint.Text = _editor.KeyClass switch
         {
             CredentialClass.LocalRecord => "读取本机 Codex CLI 的登录账户。请先安装 Codex CLI 并完成登录。",
+            CredentialClass.ConsoleSession => "填写含 workspaceId 的 OpenDesign 套餐与余额链接，勾选兼容查询并保存，再点击登录。",
             CredentialClass.AdminKey => "组织统计覆盖该密钥的授权范围，不代表个人聊天订阅额度。",
             CredentialClass.ManagementKey => "使用账户管理密钥查询余额或 credits，不参与模型探测。",
             _ => "使用服务方为此端点签发的普通 API Key。",
         };
-        PKeyHint.Text = _editor.KeyClass == CredentialClass.LocalRecord ? "无需填写密钥"
+        PKeyHint.Text = _editor.KeyClass is CredentialClass.LocalRecord or CredentialClass.ConsoleSession ? "无需填写密钥"
             : _editor.KeyClass != CredentialClass.ApiKey ? "填写所选类型的管理密钥" : KeyFormat.KeyHint(_protocol);
         PKeyHint.Visibility = _protocol == KeyFormat.Protocol.DeepSeekConsole ? Visibility.Collapsed : Visibility.Visible;
         PModelsHint.Text = _modelDraft.Count == 0 ? "点击「+ 添加模型」或「自动拉取」" : $"{_modelDraft.Count} 个模型";
@@ -184,6 +187,8 @@ public partial class MainPanel : Window
 
     private void PBaseUrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        if (Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _))
+            PCredentialCombo.SelectedValue = CredentialClass.ConsoleSession.ToString();
         var url = PBaseUrlBox.Text.ToLowerInvariant();
         var suggested = url.Contains("platform.deepseek.com") ? KeyFormat.Protocol.DeepSeekConsole
             : url.Contains("anthropic.com") ? KeyFormat.Protocol.Anthropic
@@ -212,11 +217,11 @@ public partial class MainPanel : Window
             _editor.KeyClass = kind;
             if (kind == CredentialClass.LocalRecord && PBaseUrlBox is not null && PBaseUrlBox.Text.Length == 0)
                 PBaseUrlBox.Text = "https://chatgpt.com";
-            if (PKeyBox is not null) PKeyBox.IsEnabled = kind != CredentialClass.LocalRecord;
+            if (PKeyBox is not null) PKeyBox.IsEnabled = kind is not (CredentialClass.LocalRecord or CredentialClass.ConsoleSession);
             if (PProtocolCombo is not null)
             {
-                PProtocolCombo.IsEnabled = kind != CredentialClass.LocalRecord;
-                if (kind == CredentialClass.LocalRecord) PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
+                PProtocolCombo.IsEnabled = kind is not (CredentialClass.LocalRecord or CredentialClass.ConsoleSession);
+                if (kind is CredentialClass.LocalRecord or CredentialClass.ConsoleSession) PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
             }
             if (PModelsHint is not null) RefreshFormHints();
         }
@@ -362,6 +367,18 @@ public partial class MainPanel : Window
 
     private void Login_Click(object sender, RoutedEventArgs e)
     {
+        if (Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _))
+        {
+            if (_editing is not { } saved || saved.BaseUrl != PBaseUrlBox.Text.Trim()
+                || saved.CredentialRef.ResolveClass() != CredentialClass.ConsoleSession
+                || !saved.EnabledCompatibilityMethods.Contains(Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId))
+            {
+                MessageBox.Show("请勾选兼容额度查询并保存页面，再点击登录。", "OpenDesign", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            OpenDesignLoginRequested?.Invoke(saved.Id);
+            return;
+        }
         if (Services.QueryMethods.FireworksConsoleBalanceMethod.Matches(PBaseUrlBox.Text.Trim()))
         {
             if (_editing is not { } saved || saved.BaseUrl != PBaseUrlBox.Text.Trim()

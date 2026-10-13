@@ -7,7 +7,7 @@ using TokenConsumptionMonitoring.UI;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         var app = new Application();
         app.Resources["ConnBrush"] = new ConnectionToBrushConverter();
@@ -15,7 +15,9 @@ internal static class Program
         app.Resources["Progress"] = new ProgressConverter();
         app.Resources["StrVis"] = new StringToVisibilityConverter();
         app.Resources["BoolVis"] = new BoolToVisibilityConverter();
-        EngineSmoke.Run(app, new MemoryCredentials());
+        if (args.Length >= 3 && args[0] == "--opendesign")
+            OpenDesignSmoke.Run(app, args[1], args[2], args.Contains("--verify"), new MemoryCredentials());
+        else EngineSmoke.Run(app, new MemoryCredentials());
     }
 
     private sealed class MemoryCredentials : IPageCredentialStore

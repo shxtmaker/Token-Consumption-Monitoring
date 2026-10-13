@@ -63,10 +63,11 @@
                 <ComboBox x:Name="PCredentialCombo" Height="26" Margin="0,3,0,0" SelectedValuePath="Tag" SelectionChanged="PCredentialCombo_SelectionChanged">
                     <ComboBoxItem Content="本机 Codex 登录（无需填写 Key）" Tag="LocalRecord"/>
                     <ComboBoxItem Content="普通 API Key" Tag="ApiKey"/>
+                    <ComboBoxItem Content="OpenDesign 控制台登录（无需填写 Key）" Tag="ConsoleSession"/>
                     <ComboBoxItem Content="组织 Admin Key（组织用量与费用）" Tag="AdminKey"/>
                     <ComboBoxItem Content="Management Key（账户管理查询）" Tag="ManagementKey"/>
                 </ComboBox>
-                <TextBlock x:Name="PCredentialHint" Text="按密钥实际权限选择凭据类型。" Foreground="#8A8F98" FontSize="10" Margin="0,3,0,0"/>
+                <TextBlock x:Name="PCredentialHint" Text="按密钥实际权限选择凭据类型。" Foreground="#8A8F98" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap"/>
                 <TextBlock Text="API Key" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <PasswordBox x:Name="PKeyBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"
                              FontFamily="Consolas" PasswordChanged="PKeyBox_PasswordChanged"/>
@@ -78,7 +79,7 @@
 
                 <CheckBox x:Name="PCompatibilityBox" Content="启用兼容额度查询（含控制台余额）"
                           Foreground="#E0A52B" FontSize="11" Margin="0,8,0,0"
-                          ToolTip="OpenCode Go、Command Code 的额度和 Fireworks 控制台余额需要勾选此项。兼容接口可能随供应商更新而变化。"/>
+                          ToolTip="OpenCode Go、Command Code 的额度，Fireworks 控制台余额及 OpenDesign 余额与额度需要勾选此项。兼容接口可能随供应商更新而变化。"/>
 
                 <TextBlock Text="模型列表（配置提示，不用于监控展示）" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
                 <DockPanel Margin="0,3,0,0">

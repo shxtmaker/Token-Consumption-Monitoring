@@ -22,6 +22,7 @@ public partial class App : System.Windows.Application
     private PageEngine? _pageEngine;
     private DeepSeekSessionService? _deepSeekSession;
     private FireworksConsoleSession? _fireworksSession;
+    private OpenDesignConsoleSession? _openDesignSession;
     private TrayIconService? _tray;
     private FloatingWindow? _floating;
     private MainPanel? _panel;
@@ -89,7 +90,8 @@ public partial class App : System.Windows.Application
 
         // 统一方法注册表 + 运行时协调器（扫描/选择/回退/缓存）
         _fireworksSession = new FireworksConsoleSession(Dispatcher);
-        var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, commandCode, _fireworksSession);
+        _openDesignSession = new OpenDesignConsoleSession(Dispatcher);
+        var registry = QueryMethodRegistry.BuildDefault(opencode, _openCodeAuth, _deepSeekSession, deepSeekUsage, commandCode, _fireworksSession, _openDesignSession);
         var fingerprints = new FingerprintBuilder(registry.Descriptors);
 
 
@@ -177,6 +179,7 @@ public partial class App : System.Windows.Application
         _panel!.RefreshRequested += () => _pageEngine?.RefreshNowAsync();
         _panel.LoginRequested += LoginCurrentPage;
         _panel.FireworksLoginRequested += id => _ = ShowFireworksLoginAsync(id);
+        _panel.OpenDesignLoginRequested += id => _ = ShowOpenDesignLoginAsync(id);
         _panel.PageSwitchRequested += id => _pageEngine?.SetActivePage(id);
         // 悬浮窗/托盘等外部入口切换活动页时，面板下拉框跟随；表单编辑中不抢占（防覆盖未保存内容）
         _pageEngine!.ActivePageChanged += id =>
@@ -205,6 +208,7 @@ public partial class App : System.Windows.Application
         _pageEngine!.LoginRequired += kind =>
         {
             if (kind == LoginKind.DeepSeekConsole) ShowDeepSeekLogin();
+            else if (kind == LoginKind.OpenDesignConsole && _pageEngine.ActivePage is { } openDesignPage) _ = ShowOpenDesignLoginAsync(openDesignPage.Id);
             else if (kind == LoginKind.FireworksConsole && _pageEngine.ActivePage is { } page) _ = ShowFireworksLoginAsync(page.Id);
             else if (kind == LoginKind.OpenCode) _ = LoginOpenCodeAsync();
         };
@@ -230,6 +234,26 @@ public partial class App : System.Windows.Application
         catch (Exception) { MessageBox.Show("无法打开 Fireworks 登录窗口，请稍后重试。", "Fireworks 余额"); }
     }
 
+    private async Task ShowOpenDesignLoginAsync(string pageId)
+    {
+        var page = _pageEngine?.Pages.FirstOrDefault(p => p.Id == pageId);
+        if (page is null || _openDesignSession is null) return;
+        try
+        {
+            await _openDesignSession.ShowLoginAsync(page, async () =>
+            {
+                var current = _pageEngine!.Pages.FirstOrDefault(p => p.Id == pageId);
+                if (current is null || current.Revision != page.Revision) return "页面配置已变化，请关闭此窗口并重新登录。";
+                var result = await new OpenDesignConsoleMethod(_openDesignSession).QueryAsync(current, null!, _loginCts.Token);
+                if (result.Status != SnapshotStatus.Success) return result.Failure?.Reason ?? "尚未取得余额";
+                await _pageEngine.RefreshAfterSessionAsync(CredentialClass.ConsoleSession);
+                _pageEngine.SetActivePage(pageId);
+                return null;
+            });
+        }
+        catch (Exception) { MessageBox.Show("无法打开 OpenDesign 登录窗口，请稍后重试。", "OpenDesign"); }
+    }
+
     private void ShowDeepSeekLogin()
     {
         _dsLoginWindow!.Owner = _floating;
@@ -244,6 +268,9 @@ public partial class App : System.Windows.Application
         switch (kind)
         {
             case LoginKind.DeepSeekConsole: ShowDeepSeekLogin(); break;
+            case LoginKind.OpenDesignConsole:
+                if (_pageEngine?.ActivePage is { } openDesignPage) _ = ShowOpenDesignLoginAsync(openDesignPage.Id);
+                break;
             case LoginKind.FireworksConsole:
                 if (_pageEngine?.ActivePage is { } page) _ = ShowFireworksLoginAsync(page.Id);
                 break;
@@ -320,6 +347,7 @@ public partial class App : System.Windows.Application
         _pageEngine?.Dispose();
         _deepSeekSession?.Dispose();
         _fireworksSession?.Dispose();
+        _openDesignSession?.Dispose();
         _tray?.Dispose();
         if (_panel is not null) _panel.AllowClose = true;           // 放行复用窗口的真实关闭
         if (_dsLoginWindow is not null) _dsLoginWindow.AllowClose = true;

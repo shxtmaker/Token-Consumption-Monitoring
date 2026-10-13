@@ -12,6 +12,7 @@ public sealed class PageEditorViewModel
         "opencode.rolling-window.api-key", "opencode.allowance.oauth",
         "commandcode.allowance-window.compat", "deepseek.console-usage.compat",
         "fireworks.balance.console",
+        "opendesign.balance.console", "opendesign.windows.console",
     };
     public PageConfigRecord? Editing { get; set; }
     public string Name { get; set; } = "";
@@ -43,7 +44,17 @@ public sealed class PageEditorViewModel
                 ? new(Editing.EnabledCompatibilityMethods) : CompatibilityMethods.ToList()
             : new();
         string? newSecret = null;
-        if (KeyClass == CredentialClass.LocalRecord)
+        if (KeyClass == CredentialClass.ConsoleSession)
+        {
+            if (!Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))
+                return Invalid("OpenDesign 控制台登录需要填写含 workspaceId 的套餐与余额完整链接");
+            if (!EnableCompatibility) return Invalid("请勾选启用兼容额度查询");
+            page.CredentialRef = CredentialReference.GlobalConsoleSession($"opendesign:page:{page.Id}");
+            page.Protocol = KeyFormat.Protocol.ChatCompletions.ToString();
+            foreach (var method in new[] { "opendesign.balance.console", "opendesign.windows.console" })
+                if (!page.EnabledCompatibilityMethods.Contains(method)) page.EnabledCompatibilityMethods.Add(method);
+        }
+        else if (KeyClass == CredentialClass.LocalRecord)
         {
             page.CredentialRef = CredentialReference.LocalRecord;
             if (!Services.QueryMethods.CodexAccountMethod.Matches(page))

@@ -44,7 +44,8 @@ public sealed class DeepSeekConsoleUsageOnlineMethod : IQueryMethod
         // 该来源只适用于 DeepSeek 官方页面（控制台会话协议/控制台会话凭据）。
         var isDeepSeekConsolePage =
             page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole
-            || page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession;
+            || page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession
+                && CredentialResolver.ProviderOf(page.BaseUrl) == Provider;
         if (!isDeepSeekConsolePage)
             return Task.FromResult(MethodSupport.NotAvailable(Descriptor, CandidateStatus.Unsupported,
                 "仅 DeepSeek 官方控制台页面提供线上用量",
@@ -63,6 +64,10 @@ public sealed class DeepSeekConsoleUsageOnlineMethod : IQueryMethod
 
     public async Task<MethodQueryResult> QueryAsync(PageConfigRecord page, MethodCandidate candidate, CancellationToken ct)
     {
+        if (page.ParseProtocol() != KeyFormat.Protocol.DeepSeekConsole
+            && !(page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession
+                && CredentialResolver.ProviderOf(page.BaseUrl) == Provider))
+            return MethodQueryResult.Empty(SnapshotStatus.NoData, "仅 DeepSeek 官方控制台页面提供线上用量");
         if (!_session.IsLoggedIn)
             return MethodQueryResult.Empty(SnapshotStatus.AuthRequired, "DeepSeek 控制台会话失效");
 
