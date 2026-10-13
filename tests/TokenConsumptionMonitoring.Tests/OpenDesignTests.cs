@@ -33,6 +33,105 @@ public sealed class OpenDesignTests
         ]}
         """);
 
+    private static PageConfigRecord ApiPage(string workspace = "workspace-a")
+    {
+        var json = JsonSerializer.SerializeToNode(Page())!;
+        json["BaseUrl"] = "https://amr-link.open-design.ai/v1";
+        json["CredentialRef"] = JsonSerializer.SerializeToNode(CredentialReference.PageApiKey("test-page"));
+        json["OpenDesignWorkspaceId"] = workspace;
+        return json.Deserialize<PageConfigRecord>()!;
+    }
+
+    [Fact]
+    public async Task ApiEndpointReadsPrivateConsoleWithoutReplacingApiConfiguration()
+    {
+        var page = ApiPage();
+        var originalCredential = page.CredentialRef;
+        var reader = new Reader(Observation("{\"balanceUsd\":\"1.50\"}"));
+        var result = await new OpenDesignConsoleMethod(reader).QueryAsync(page, null!, default);
+        Assert.Equal(SnapshotStatus.Success, result.Status);
+        Assert.Equal("https://amr-link.open-design.ai/v1", page.BaseUrl);
+        Assert.Equal(originalCredential, page.CredentialRef);
+        Assert.Equal(CredentialClass.ConsoleSession, Assert.Single(result.Capabilities).CredentialScope.Class);
+        Assert.Equal(1, reader.Calls);
+    }
+
+    [Theory]
+    [InlineData("https://amr-link.open-design.ai/v1", true)]
+    [InlineData("https://amr-link.open-design.ai/v1/", true)]
+    [InlineData("http://amr-link.open-design.ai/v1", false)]
+    [InlineData("https://amr-link.open-design.ai.evil.invalid/v1", false)]
+    [InlineData("https://user@amr-link.open-design.ai/v1", false)]
+    [InlineData("https://amr-link.open-design.ai:8443/v1", false)]
+    [InlineData("https://amr-link.open-design.ai/v1?workspaceId=other", false)]
+    [InlineData("https://amr-link.open-design.ai/v1#fragment", false)]
+    [InlineData("https://amr-link.open-design.ai/unrelated", false)]
+    public void PrivateWorkspaceIsOnlyAttachedToTrustedInferenceEndpoints(string url, bool accepted)
+    {
+        var page = ApiPage();
+        page.BaseUrl = url;
+        Assert.Equal(accepted, OpenDesignConsoleMethod.TryGetWorkspace(page, out _));
+    }
+
+    [Fact]
+    public async Task PrivateCompatibilityRequiresWorkspaceAndExplicitEnablement()
+    {
+        var reader = new Reader(Observation("{\"balanceUsd\":\"1.50\"}"));
+        var page = ApiPage();
+        page.OpenDesignWorkspaceId = null;
+        Assert.Equal(CandidateStatus.Unsupported, (await new OpenDesignConsoleMethod(reader).QueryAsync(page, null!, default)).Failure!.Status);
+        page = ApiPage();
+        page.EnabledCompatibilityMethods.Clear();
+        Assert.Equal(CandidateStatus.Unsupported, (await new OpenDesignConsoleMethod(reader).QueryAsync(page, null!, default)).Failure!.Status);
+        Assert.Equal(0, reader.Calls);
+    }
+
+    [Fact]
+    public void PrivateWorkspaceRoundTripPreservesApiConfigurationAndInvalidatesCachedScope()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tcm_opendesign_private_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new PageConfigStore(directory);
+            store.Load();
+            var original = ApiPage();
+            original.OpenDesignWorkspaceId = null;
+            original.ConfiguredModelHints = ["original-model"];
+            var catalog = new PageCatalog([original]);
+            var commands = new PageConfigurationCommands(catalog, store, new NoSecrets());
+            var editor = new PageEditorViewModel
+            {
+                Editing = catalog.Snapshot().Single(), Name = original.Name, BaseUrl = original.BaseUrl,
+                Protocol = original.ParseProtocol(), KeyClass = CredentialClass.ApiKey, EnableCompatibility = true,
+                OpenDesignWorkspaceInput = OpenDesignConsoleMethod.DashboardUrl("workspace-a"),
+            };
+            editor.Models.AddRange(original.ConfiguredModelHints);
+            Assert.True(editor.Save(commands, "").Succeeded);
+            var saved = new PageConfigStore(directory).Load().Document.Pages.Single();
+            Assert.Equal(original.BaseUrl, saved.BaseUrl);
+            Assert.Equal(original.CredentialRef, saved.CredentialRef);
+            Assert.Equal(original.Protocol, saved.Protocol);
+            Assert.Equal(original.ConfiguredModelHints, saved.ConfiguredModelHints);
+            Assert.Equal("workspace-a", saved.OpenDesignWorkspaceId);
+            Assert.Equal("workspace-a", catalog.Snapshot().Single().OpenDesignWorkspaceId);
+
+            var fingerprint = new FingerprintBuilder([new OpenDesignConsoleMethod(null).Describe()]);
+            editor.Editing = catalog.Snapshot().Single();
+            editor.OpenDesignWorkspaceInput = "workspace-b";
+            Assert.True(editor.Save(commands, "").Succeeded);
+            var switched = catalog.Snapshot().Single();
+            Assert.Equal(original.BaseUrl, switched.BaseUrl);
+            Assert.NotEqual(fingerprint.Build(saved), fingerprint.Build(switched));
+            Assert.NotEqual(OpenDesignConsoleSession.SessionKey(saved), OpenDesignConsoleSession.SessionKey(switched));
+
+            editor.Editing = switched;
+            editor.OpenDesignWorkspaceInput = "https://other.invalid/cloud/dashboard?workspaceId=workspace-b";
+            Assert.False(editor.Save(commands, "").Succeeded);
+            Assert.Equal("workspace-b", new PageConfigStore(directory).Load().Document.Pages.Single().OpenDesignWorkspaceId);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
     [Theory]
     [InlineData("https://open-design.ai/cloud/dashboard?workspaceId=abc_123-DEF", true)]
     [InlineData("https://open-design.ai/cloud/dashboard/?workspaceId=abc", true)]
@@ -232,8 +331,10 @@ public sealed class OpenDesignTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
-    [Fact]
-    public async Task DefaultRegistryPublishesBothCapabilitiesAndKeepsWorkspaceFailureIsolated()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DefaultRegistryPublishesBothCapabilitiesAndKeepsWorkspaceFailureIsolated(bool useApiEndpoint)
     {
         var directory = Path.Combine(Path.GetTempPath(), "tcm_opendesign_runtime_" + Guid.NewGuid().ToString("N"));
         using var session = new DeepSeekSessionService(Dispatcher.CurrentDispatcher);
@@ -244,7 +345,7 @@ public sealed class OpenDesignTests
                 session, new DeepSeekUsageClient(session), new CommandCodeUsageClient(), openDesign: reader);
             var coordinator = new PageRuntimeCoordinator(registry, new FingerprintBuilder(registry.Descriptors),
                 new MethodStateStore(directory), new MethodResultCache());
-            var page = Page();
+            var page = useApiEndpoint ? ApiPage() : Page();
             // 与编辑器勾选兼容查询后的配置一致，确认其他供应商不会混入。
             page.EnabledCompatibilityMethods.AddRange(["opencode.rolling-window.api-key", "opencode.allowance.oauth",
                 "commandcode.allowance-window.compat", "deepseek.console-usage.compat", "fireworks.balance.console"]);
@@ -267,7 +368,8 @@ public sealed class OpenDesignTests
             Assert.All(partial.Snapshot.Windows, w => Assert.True(w.IsStale));
 
             reader.AllFailure = "auth";
-            page.BaseUrl = Page("workspace-b").BaseUrl;
+            if (useApiEndpoint) page.OpenDesignWorkspaceId = "workspace-b";
+            else page.BaseUrl = Page("workspace-b").BaseUrl;
             var switched = await coordinator.RefreshAsync(page, RefreshReason.Manual, default);
             Assert.Equal(SnapshotStatus.AuthRequired, switched.Snapshot.Status);
             Assert.Empty(switched.Snapshot.Capabilities);

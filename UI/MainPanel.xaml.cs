@@ -143,6 +143,7 @@ public partial class MainPanel : Window
         PModelsList.ItemsSource = null;
         PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
         PCompatibilityBox.IsChecked = false;
+        POpenDesignWorkspaceBox.Text = "";
         RefreshFormHints();
     }
 
@@ -155,6 +156,7 @@ public partial class MainPanel : Window
         PBaseUrlBox.Text = page.BaseUrl;
         PProtocolCombo.SelectedItem = page.ParseProtocol();
         PCompatibilityBox.IsChecked = page.EnabledCompatibilityMethods.Count > 0;
+        POpenDesignWorkspaceBox.Text = page.OpenDesignWorkspaceId ?? "";
         PKeyBox.Password = _commands.ReadApiKeyForEditing(page);
         _loadedSecret = PKeyBox.Password;
         _modelDraft.Clear();
@@ -187,8 +189,14 @@ public partial class MainPanel : Window
 
     private void PBaseUrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _))
+        var legacyOpenDesign = Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _);
+        POpenDesignConsoleCredential.Visibility = legacyOpenDesign ? Visibility.Visible : Visibility.Collapsed;
+        POpenDesignCompatibilityPanel.Visibility = Services.QueryMethods.OpenDesignConsoleMethod.MatchesApiEndpoint(PBaseUrlBox.Text.Trim())
+            ? Visibility.Visible : Visibility.Collapsed;
+        if (legacyOpenDesign)
             PCredentialCombo.SelectedValue = CredentialClass.ConsoleSession.ToString();
+        else if (_editor.KeyClass == CredentialClass.ConsoleSession)
+            PCredentialCombo.SelectedValue = CredentialClass.ApiKey.ToString();
         var url = PBaseUrlBox.Text.ToLowerInvariant();
         var suggested = url.Contains("platform.deepseek.com") ? KeyFormat.Protocol.DeepSeekConsole
             : url.Contains("anthropic.com") ? KeyFormat.Protocol.Anthropic
@@ -325,6 +333,7 @@ public partial class MainPanel : Window
         _editor.BaseUrl = PBaseUrlBox.Text;
         _editor.Protocol = _protocol;
         _editor.EnableCompatibility = PCompatibilityBox.IsChecked == true;
+        _editor.OpenDesignWorkspaceInput = POpenDesignWorkspaceBox.Text;
         var saveResult = _editor.Save(_commands, PKeyBox.Password);
         if (!saveResult.Succeeded)
         {
@@ -367,13 +376,17 @@ public partial class MainPanel : Window
 
     private void Login_Click(object sender, RoutedEventArgs e)
     {
-        if (Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _))
+        var isOpenDesignApi = Services.QueryMethods.OpenDesignConsoleMethod.MatchesApiEndpoint(PBaseUrlBox.Text.Trim());
+        if (isOpenDesignApi || Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(PBaseUrlBox.Text.Trim(), out _))
         {
             if (_editing is not { } saved || saved.BaseUrl != PBaseUrlBox.Text.Trim()
-                || saved.CredentialRef.ResolveClass() != CredentialClass.ConsoleSession
+                || !Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(saved, out var savedWorkspace)
+                || (isOpenDesignApi && (!Services.QueryMethods.OpenDesignConsoleMethod.TryParseWorkspaceInput(POpenDesignWorkspaceBox.Text, out var workspace)
+                    || workspace != savedWorkspace))
+                || PCompatibilityBox.IsChecked != true
                 || !saved.EnabledCompatibilityMethods.Contains(Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId))
             {
-                MessageBox.Show("请勾选兼容额度查询并保存页面，再点击登录。", "OpenDesign", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("请填写工作空间，勾选兼容额度查询并保存页面，再点击登录。", "OpenDesign", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             OpenDesignLoginRequested?.Invoke(saved.Id);

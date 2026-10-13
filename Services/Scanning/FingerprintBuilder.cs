@@ -40,7 +40,7 @@ public sealed class FingerprintBuilder
         var sb = new StringBuilder();
         sb.Append(Uri.TryCreate(page.BaseUrl, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Path).TrimEnd('/') : page.BaseUrl);
         sb.Append("|").Append(page.Protocol);
-        if (QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out var workspace))
+        if (QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page, out var workspace))
             sb.Append("|opendesign-workspace=").Append(workspace);
         sb.Append("|credential=").Append(page.CredentialRef.ResolveClass());
         sb.Append("|reference=").Append(page.CredentialRef.Target);

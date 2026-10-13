@@ -20,6 +20,7 @@ public sealed class PageEditorViewModel
     public KeyFormat.Protocol Protocol { get; set; }
     public CredentialClass KeyClass { get; set; } = CredentialClass.ApiKey;
     public bool EnableCompatibility { get; set; }
+    public string OpenDesignWorkspaceInput { get; set; } = "";
     public List<string> Models { get; } = new();
     public string LoadedSecret { get; set; } = "";
     public string? Error { get; private set; }
@@ -44,6 +45,21 @@ public sealed class PageEditorViewModel
                 ? new(Editing.EnabledCompatibilityMethods) : CompatibilityMethods.ToList()
             : new();
         string? newSecret = null;
+        if (Services.QueryMethods.OpenDesignConsoleMethod.MatchesApiEndpoint(page.BaseUrl))
+        {
+            var input = OpenDesignWorkspaceInput.Trim();
+            if (input.Length > 0 || EnableCompatibility)
+            {
+                if (!Services.QueryMethods.OpenDesignConsoleMethod.TryParseWorkspaceInput(input, out var workspace))
+                    return Invalid("请填写 OpenDesign 工作空间 ID，或粘贴含 workspaceId 的套餐与余额链接");
+                page.OpenDesignWorkspaceId = workspace;
+            }
+            else page.OpenDesignWorkspaceId = null;
+            if (EnableCompatibility)
+                foreach (var method in new[] { Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId, Services.QueryMethods.OpenDesignConsoleMethod.WindowsMethodId })
+                    if (!page.EnabledCompatibilityMethods.Contains(method)) page.EnabledCompatibilityMethods.Add(method);
+        }
+        else page.OpenDesignWorkspaceId = null;
         if (KeyClass == CredentialClass.ConsoleSession)
         {
             if (!Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))

@@ -84,7 +84,7 @@ MiniMax 旧响应若只有计数而没有显式剩余百分比，显示结构不
 | `opendesign.balance.console` | 按页面与工作空间隔离的控制台会话 | 指定工作空间的钱包余额，保留 `balanceUsd` 的 USD 单位 |
 | `opendesign.windows.console` | 同上 | 当前工作空间成员的 Design Plan 窗口已用百分比与重置时间 |
 
-两项方法均为显式启用的私有兼容来源。使用控制台“套餐与余额”的完整 HTTPS 链接，只接受一个 `workspaceId` 参数。具体配置步骤见[供应商数据查询](provider-query-troubleshooting.md#opendesign)。
+两项方法均为显式启用的私有兼容来源。自 1.3.4 起保留推理 Base URL `https://amr-link.open-design.ai/v1` 和原 API Key，另存工作空间 ID；输入框也接受控制台“套餐与余额”的完整 HTTPS 链接，仅解析单个 `workspaceId` 参数。控制台查询不读取或传送该 API Key。1.3.3 的控制台页面仍受支持。具体配置步骤见[供应商数据查询](provider-query-troubleshooting.md#opendesign)。
 
 工作空间参数参与运行时指纹及浏览器配置隔离。查询核对工作空间身份，余额与窗口不跨空间复用；不会尝试把普通 API Key 当作控制台登录会话。内部 credits 仅用于计算与控制台一致的比例，不将其显示为 Token、USD 或微美分。
 

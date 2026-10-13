@@ -2,26 +2,26 @@
 
 Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配置面板，查看多个服务账户的额度窗口、Token 用量、费用与余额。
 
-当前版本：**1.3.3** · Windows x64
+当前版本：**1.3.4** · Windows x64
 
 ## 下载与安装
 
-从 [GitHub 1.3.3 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.3) 或 [Gitea 1.3.3 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.3) 下载。Gitea 地址需要局域网访问。
+从 [GitHub 1.3.4 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.4) 或 [Gitea 1.3.4 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.4) 下载。Gitea 地址需要局域网访问。
 
 | 发布文件 | 适用情况 |
 | --- | --- |
-| `TokenConsumptionMonitoring-Setup-1.3.3.exe` | 首次安装，或覆盖升级已有安装版。 |
-| `TokenConsumptionMonitoring-Portable-1.3.3.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
-| `TokenConsumptionMonitoring-Upgrade-1.3.3.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
+| `TokenConsumptionMonitoring-Setup-1.3.4.exe` | 首次安装，或覆盖升级已有安装版。 |
+| `TokenConsumptionMonitoring-Portable-1.3.4.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
+| `TokenConsumptionMonitoring-Upgrade-1.3.4.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
 
 三个包均包含 .NET 8 运行组件，无需另行安装 .NET。DeepSeek、Fireworks 和 OpenDesign 控制台登录还需要 Microsoft Edge WebView2 Runtime；发布包不包含 WebView2 或 Codex CLI。
 
-## 1.3.3 更新内容
+## 1.3.4 更新内容
 
-- 新增 OpenDesign 工作空间钱包余额及 Design Plan 额度窗口查询，无需填写 API Key。
-- 支持显示额度已用百分比与重置倒计时，登录状态按页面和工作空间隔离保存，重启后自动恢复。
-- 分别处理余额与套餐查询失败，缺失额度不会显示为零。
-- 修正不同供应商控制台会话的查询来源匹配，避免 OpenDesign 页面被识别为 DeepSeek。
+- OpenDesign 额度查询改为独立的私有兼容配置，保留原推理 Base URL、API Key、协议和模型列表。
+- 在“OpenDesign 私有兼容”中填写工作空间 ID 或套餐与余额链接，保存后登录即可读取钱包余额和套餐窗口。
+- 补齐独立工作空间的保存、重载、登录分发及会话刷新；切换工作空间后重新读取对应额度。
+- 继续兼容 1.3.3 已建立的控制台页面。
 
 ## 支持的查询
 
@@ -39,7 +39,7 @@ OpenDesign 支持指定工作空间的钱包余额和 Design Plan 额度窗口�
 | MiniMax | Token Plan 模型窗口及周窗口百分比 | 对应账户密钥与套餐权限 |
 | OpenCode | 滚动窗口或 OAuth 额度 | 在页面中显式启用对应查询方法 |
 | Fireworks AI | 账户本月消费、控制台 Credits 余额 | API Key；余额需启用兼容查询并登录控制台 |
-| OpenDesign | 工作空间 USD 钱包余额、Design Plan 窗口已用百分比与重置倒计时 | 填写含 `workspaceId` 的套餐与余额链接，启用兼容查询并登录控制台；无需 API Key |
+| OpenDesign | 工作空间 USD 钱包余额、Design Plan 窗口已用百分比与重置倒计时 | 保留原 API 配置；启用私有兼容查询，单独填写工作空间并登录控制台 |
 | Command Code | 服务端报告的窗口额度、余额或 credits | 在页面中显式启用兼容查询方法 |
 
 实际显示内容以服务方返回的数据和账户权限为准。组织报表默认查询最近已完成的 UTC 日；Codex 累计用量不会标为今日用量。仅连接或模型目录探测成功，不代表服务提供额度接口。
@@ -90,7 +90,7 @@ dotnet run --project tests/OfficialQuerySmoke/OfficialQuerySmoke.csproj -c Relea
 生成安装包、免安装包和升级包还需要 Inno Setup 6：
 
 ```powershell
-pwsh ./packaging/release.ps1 -Version 1.3.3
+pwsh ./packaging/release.ps1 -Version 1.3.4
 ```
 
 三个包输出到 `dist/`。Inno Setup 不在默认路径时，可用 `-IsccPath` 指定 `ISCC.exe`。源码构建不会自动替换已安装程序。
@@ -100,7 +100,7 @@ pwsh ./packaging/release.ps1 -Version 1.3.3
 - [供应商数据查询与控制台登录](docs/provider-query-troubleshooting.md)
 - [查询覆盖与配置说明](docs/query-coverage.md)
 - [接口验证结果与范围](docs/query-coverage-verification.md)
-- [1.3.3 发布验证说明](docs/releases/v1.3.3-verification.md)
+- [1.3.4 发布验证说明](docs/releases/v1.3.4-verification.md)
 - [开发与架构说明](docs/architecture.md)
 - [桌面验收程序](tests/DesktopSmoke/README.md)
 

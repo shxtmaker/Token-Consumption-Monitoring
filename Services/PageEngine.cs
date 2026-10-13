@@ -164,7 +164,9 @@ public sealed class PageEngine : IDisposable
                 && page.EnabledCompatibilityMethods.Contains("opencode.allowance.oauth")
             || credentialClass == CredentialClass.ConsoleSession
                 && (page.ParseProtocol() == KeyFormat.Protocol.DeepSeekConsole
-                    || page.EnabledCompatibilityMethods.Contains("fireworks.balance.console")));
+                    || page.EnabledCompatibilityMethods.Contains("fireworks.balance.console")
+                    || page.EnabledCompatibilityMethods.Contains(QueryMethods.OpenDesignConsoleMethod.BalanceMethodId)
+                    || page.EnabledCompatibilityMethods.Contains(QueryMethods.OpenDesignConsoleMethod.WindowsMethodId)));
         await RefreshNowAsync();
     }
 
@@ -276,7 +278,7 @@ public sealed class PageEngine : IDisposable
         {
             kind = result.AuthCredentialClass switch
             {
-                CredentialClass.ConsoleSession when QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(ActivePage?.BaseUrl ?? "", out _) => LoginKind.OpenDesignConsole,
+                CredentialClass.ConsoleSession when ActivePage is { } page && QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page, out _) => LoginKind.OpenDesignConsole,
                 CredentialClass.ConsoleSession when QueryMethods.FireworksConsoleBalanceMethod.Matches(ActivePage?.BaseUrl ?? "") => LoginKind.FireworksConsole,
                 CredentialClass.ConsoleSession => LoginKind.DeepSeekConsole,
                 CredentialClass.OAuthSession => LoginKind.OpenCode,

@@ -22,12 +22,14 @@
 
 ## OpenDesign
 
-自 1.3.3 起支持。控制台登录需要 Microsoft Edge WebView2 Runtime。
+自 1.3.4 起，OpenDesign 钱包与套餐额度使用独立的私有兼容配置。控制台登录需要 Microsoft Edge WebView2 Runtime。
 
-1. 在 OpenDesign 控制台打开目标工作空间的“套餐与余额”，复制完整链接。链接格式为 `https://open-design.ai/cloud/dashboard?workspaceId=你的工作空间ID`。
-2. 在本应用中新建页面，将完整链接填入 Base URL。凭据类型会自动选择“OpenDesign 控制台登录（无需填写 Key）”。
-3. 勾选“启用兼容额度查询（含控制台余额）”并保存。API Key 和模型列表无需填写。
-4. 在登录窗口完成登录，点击“完成并读取额度”。也可以重新打开页面编辑表单，点击“登录”。
+1. 编辑现有 OpenDesign 页面，保持 Base URL 为 `https://amr-link.open-design.ai/v1`，API Key、协议和模型列表保持原配置。
+2. 勾选“启用兼容额度查询（含控制台余额）”。在“OpenDesign 私有兼容”的工作空间输入框中填写工作空间 ID，或粘贴 `https://open-design.ai/cloud/dashboard?workspaceId=你的工作空间ID` 形式的完整链接。
+3. 保存页面。若未自动打开登录窗口，重新点击“编辑”，在私有兼容区域点击“登录 OpenDesign”。
+4. 登录有权访问该工作空间的账户，点击“完成并读取额度”。
+
+API Key 继续用于原推理端点和模型探测，额度查询使用独立的控制台会话。显示的数据属于所选工作空间，不代表当前 API Key 的独立用量。1.3.3 已建立的控制台页面仍可读取，无需强制迁移。
 
 桌面组件显示钱包余额（USD）、Design Plan 各窗口的已用百分比及重置倒计时。例如，控制台显示剩余 97% 时，桌面组件显示已用 3%。窗口名称和重置时间取自服务端报告，不按套餐名称预设额度。
 

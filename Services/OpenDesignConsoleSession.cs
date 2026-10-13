@@ -42,7 +42,7 @@ public sealed class OpenDesignConsoleSession(Dispatcher dispatcher, string? prof
     {
         var key = SessionKey(page);
         if (_windows.TryGetValue(key, out var existing)) return existing;
-        OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out var workspace);
+        OpenDesignConsoleMethod.TryGetWorkspace(page, out var workspace);
         var window = new OpenDesignConsoleWindow(ProfilePath(key), workspace) { Title = $"OpenDesign 登录 — {page.Name}" };
         _windows.Add(key, window);
         window.ShowActivated = false;
@@ -53,8 +53,8 @@ public sealed class OpenDesignConsoleSession(Dispatcher dispatcher, string? prof
 
     internal static string SessionKey(PageConfigRecord page)
     {
-        if (!OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out var workspace))
-            throw new QueryTransportException(CandidateStatus.Unsupported, "请填写含 workspaceId 的 OpenDesign 套餐与余额链接");
+        if (!OpenDesignConsoleMethod.TryGetWorkspace(page, out var workspace))
+            throw new QueryTransportException(CandidateStatus.Unsupported, "请在私有兼容配置中填写 OpenDesign 工作空间");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(page.Id + "|" + workspace)));
     }
     private string ProfilePath(string key) => Path.Combine(profileRoot ?? Path.Combine(SettingsStore.DataDirectory, "OpenDesignProfiles"), key);

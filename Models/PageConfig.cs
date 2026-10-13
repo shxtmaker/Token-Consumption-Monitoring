@@ -47,6 +47,10 @@ public sealed class PageConfigRecord
     /// <summary>显式启用的私有兼容方法 ID；为空表示不启用任何私有来源。</summary>
     public List<string> EnabledCompatibilityMethods { get; set; } = new();
 
+    /// <summary>OpenDesign 私有兼容查询的工作空间；不替换推理端点或 API 密钥引用。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OpenDesignWorkspaceId { get; set; }
+
     /// <summary>页面显示顺序。</summary>
     public int SortOrder { get; set; }
 

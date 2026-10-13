@@ -109,6 +109,7 @@ public sealed class PageCatalog
         SessionGeneration = page.SessionGeneration,
         ConfiguredModelHints = new(page.ConfiguredModelHints),
         EnabledCompatibilityMethods = new(page.EnabledCompatibilityMethods),
+        OpenDesignWorkspaceId = page.OpenDesignWorkspaceId,
         Deprecated = page.Deprecated is { } old ? new DeprecatedPageSettings
         {
             AmountWarnCny = old.AmountWarnCny, AmountCriticalCny = old.AmountCriticalCny,

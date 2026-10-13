@@ -49,6 +49,32 @@ internal static class Program
         Capture(panelRoot, state, 720, 820, Path.Combine(output, "codex-form-narrow.png"));
         ((Button)panel.FindName("PSaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (!catalog.Snapshot().Any(p => p.CredentialRef.Kind == CredentialRefKind.LocalRecord)) throw new Exception("Local selection was not saved");
+        ((Button)panel.FindName("AddProviderBtn")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((TextBox)panel.FindName("PNameBox")).Text = "OpenDesign";
+        const string openDesignEndpoint = "https://amr-link.open-design.ai/v1";
+        ((TextBox)panel.FindName("PBaseUrlBox")).Text = openDesignEndpoint;
+        ((PasswordBox)panel.FindName("PKeyBox")).Password = "test-opendesign-key";
+        ((CheckBox)panel.FindName("PCompatibilityBox")).IsChecked = true;
+        ((TextBox)panel.FindName("POpenDesignWorkspaceBox")).Text = OpenDesignConsoleMethod.DashboardUrl("workspace-a");
+        if ((string)((ComboBox)panel.FindName("PCredentialCombo")).SelectedValue != "ApiKey"
+            || !((PasswordBox)panel.FindName("PKeyBox")).IsEnabled
+            || ((Border)panel.FindName("POpenDesignCompatibilityPanel")).Visibility != Visibility.Visible)
+            throw new Exception("OpenDesign private compatibility replaced the API credential controls");
+        Capture(panelRoot, state, 1080, 1000, Path.Combine(output, "opendesign-private-form.png"));
+        Capture(panelRoot, state, 620, 1000, Path.Combine(output, "opendesign-private-form-narrow.png"));
+        ((Button)panel.FindName("PSaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var openDesignPage = catalog.Snapshot().Single(p => p.Name == "OpenDesign");
+        if (openDesignPage.BaseUrl != openDesignEndpoint || openDesignPage.OpenDesignWorkspaceId != "workspace-a"
+            || openDesignPage.CredentialRef.ResolveClass() != CredentialClass.ApiKey
+            || commands.ReadApiKeyForEditing(openDesignPage) != "test-opendesign-key")
+            throw new Exception("OpenDesign private settings did not preserve the API configuration");
+        ((Button)panel.FindName("EditPageBtn")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (((TextBox)panel.FindName("POpenDesignWorkspaceBox")).Text != "workspace-a")
+            throw new Exception("OpenDesign workspace did not reload in the editor");
+        string? openDesignLoginPage = null;
+        panel.OpenDesignLoginRequested += id => openDesignLoginPage = id;
+        ((Button)panel.FindName("POpenDesignLoginButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (openDesignLoginPage != openDesignPage.Id) throw new Exception("OpenDesign private login was not dispatched");
         ((Border)panel.FindName("ProviderForm")).Visibility = Visibility.Collapsed;
         var now = DateTimeOffset.UtcNow;
         var source = new SourceIdentity("fixture", "test", "test", "https://example.invalid");
@@ -182,7 +208,7 @@ internal static class Program
         }, true);
         Capture(floatingRoot, state, floating.Width, null, Path.Combine(output, "reported-cost-widget.png"));
         AssertVisibleCosts(floatingRoot, state);
-        Console.WriteLine("PASS: credential controls, local-session key state, multi-currency projection, compact progress width, reported cost and eleven WPF renders");
+        Console.WriteLine("PASS: credential controls, OpenDesign private workspace and login dispatch, local-session key state, multi-currency projection, compact progress width, reported cost and thirteen WPF renders");
         return 0;
     }
 

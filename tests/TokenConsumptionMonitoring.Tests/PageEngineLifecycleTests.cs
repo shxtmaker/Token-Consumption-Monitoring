@@ -12,6 +12,53 @@ namespace TokenConsumptionMonitoring.Tests;
 public sealed class PageEngineLifecycleTests
 {
     [Fact]
+    public Task ApiPageRoutesPrivateConsoleAuthenticationToOpenDesign() => OnDispatcher(async () =>
+    {
+        var catalog = new PageCatalog([new PageConfigRecord
+        {
+            Name = "OpenDesign", BaseUrl = "https://amr-link.open-design.ai/v1", OpenDesignWorkspaceId = "workspace-a",
+            CredentialRef = CredentialReference.PageApiKey("test-page"),
+            EnabledCompatibilityMethods = ["opendesign.balance.console", "opendesign.windows.console"],
+        }]);
+        var page = catalog.Snapshot().Single();
+        var coordinator = new ControlledCoordinator();
+        using var engine = Create(catalog, coordinator, new MonitorState(), new Tray());
+        var requested = new List<LoginKind>();
+        engine.LoginRequired += kind => requested.Add(kind);
+        engine.SetActivePage(page.Id, persist: false);
+        await coordinator.Started(page.Id);
+        coordinator.Pending[page.Id].SetResult(new(page.Id, Snapshot(page.Id, SnapshotStatus.AuthRequired), null, null, CredentialClass.ConsoleSession));
+        await Drain();
+        Assert.Equal(LoginKind.OpenDesignConsole, Assert.Single(requested));
+        await engine.StopAsync();
+    });
+
+    [Fact]
+    public Task PrivateConsoleLoginInvalidatesApiPageWithoutReplacingItsCredential() => OnDispatcher(async () =>
+    {
+        var catalog = new PageCatalog([new PageConfigRecord
+        {
+            Name = "OpenDesign", BaseUrl = "https://amr-link.open-design.ai/v1", OpenDesignWorkspaceId = "workspace-a",
+            CredentialRef = CredentialReference.PageApiKey("test-page"),
+            EnabledCompatibilityMethods = ["opendesign.balance.console", "opendesign.windows.console"],
+        }]);
+        var original = catalog.Snapshot().Single();
+        var coordinator = new ControlledCoordinator();
+        using var engine = Create(catalog, coordinator, new MonitorState(), new Tray());
+        var refresh = engine.RefreshAfterSessionAsync(CredentialClass.ConsoleSession);
+        await coordinator.Started(original.Id);
+        coordinator.Pending[original.Id].SetResult(Result(original.Id, SnapshotStatus.NoData));
+        await refresh;
+        var current = catalog.Snapshot().Single();
+        Assert.NotEqual(original.SessionGeneration, current.SessionGeneration);
+        Assert.True(current.Revision > original.Revision);
+        Assert.Equal(original.BaseUrl, current.BaseUrl);
+        Assert.Equal(original.CredentialRef, current.CredentialRef);
+        Assert.Equal(original.OpenDesignWorkspaceId, current.OpenDesignWorkspaceId);
+        await engine.StopAsync();
+    });
+
+    [Fact]
     public Task SwitchingPage_ClearsTrayAndRejectsLateBackgroundResult() => OnDispatcher(async () =>
     {
         var a = new PageConfigRecord { Name = "A" };

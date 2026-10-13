@@ -32,4 +32,10 @@
 
 自动化测试结果保存在忽略目录 `artifacts/opendesign-verification/opendesign-tests.trx`。桌面真实读取证据位于 `artifacts/opendesign-live/`：`live-result.json`、`live-widget.png`、`live-panel.png` 以及只记录字段名的 `wallet-schema.json`、`windows-schema.json`。重启恢复证据为 `last-start.json`、`restart-result.json`、`restart-pass.txt`、`restart-widget.png` 和 `restart-panel.png`；保留的 `restart-error.txt` 来自首次登录前的失败尝试，其时间早于本次通过记录。真实桌面验收步骤见 [DesktopSmoke 说明](../tests/DesktopSmoke/README.md#opendesign-真实只读验收模式)。凭据、浏览器配置和私人额度截图不提交到仓库。
 
-早期本地预览包位于 `artifacts/opendesign-preview/TokenConsumptionMonitoring-OpenDesign-local.zip`，校验文件为同目录的 `SHA256SUMS`。正式使用请下载 1.3.3 发布包。
+早期本地预览包位于 `artifacts/opendesign-preview/TokenConsumptionMonitoring-OpenDesign-local.zip`，校验文件为同目录的 `SHA256SUMS`。
+
+## 1.3.4 私有兼容配置
+
+1.3.4 将推理地址与工作空间配置分开：Base URL 和 API Key 保持原值，`openDesignWorkspaceId` 仅用于显式启用的私有兼容查询。控制台会话仍按页面 ID 与工作空间隔离。自动测试覆盖配置保存重载、来源与指纹隔离、工作空间切换、API 凭据保留以及登录分发；WPF 验证覆盖实际编辑控件和宽窄布局。
+
+上述 1.3.3 真实读取与重启结果属于当时的控制台页面模式，不能视为 1.3.4 API 页面模式已经完成真实账户验收。1.3.4 的验证范围见 [发布验证说明](releases/v1.3.4-verification.md)。

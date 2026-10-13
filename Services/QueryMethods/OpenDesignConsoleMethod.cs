@@ -21,7 +21,30 @@ public sealed class OpenDesignConsoleMethod(IOpenDesignConsoleReader? reader, bo
     private readonly QueryMethodDescriptor _descriptor = new(windows ? WindowsMethodId : BalanceMethodId,
         SourceKind.ConsoleOrPrivateUI, CredentialClass.ConsoleSession,
         QueryMethodDescriptor.CapabilitiesOf(windows ? CapabilityKind.RollingWindow : CapabilityKind.BalanceOrQuota),
-        SourceStability.PrivateCompat, MethodEnablement.PrivateCompatOnly, 30, "1.0.0");
+        SourceStability.PrivateCompat, MethodEnablement.PrivateCompatOnly, 30, "1.1.0");
+
+    public static bool MatchesApiEndpoint(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.Scheme == "https" && uri.IsDefaultPort && uri.UserInfo.Length == 0
+        && uri.IdnHost.Equals("amr-link.open-design.ai", StringComparison.OrdinalIgnoreCase)
+        && uri.Query.Length == 0 && uri.Fragment.Length == 0
+        && uri.AbsolutePath.TrimEnd('/') is "" or "/v1";
+
+    public static bool TryParseWorkspaceInput(string input, out string workspace)
+    {
+        workspace = input.Trim();
+        if (Regex.IsMatch(workspace, @"\A[a-zA-Z0-9_-]{1,128}\z")) return true;
+        return TryGetWorkspace(workspace, out workspace);
+    }
+
+    public static bool TryGetWorkspace(PageConfigRecord page, out string workspace)
+    {
+        // 1.3.3 的控制台页面继续兼容；推理页面使用独立保存的工作空间。
+        if (!MatchesApiEndpoint(page.BaseUrl)) return TryGetWorkspace(page.BaseUrl, out workspace);
+        workspace = page.OpenDesignWorkspaceId ?? "";
+        if (Regex.IsMatch(workspace, @"\A[a-zA-Z0-9_-]{1,128}\z")) return true;
+        workspace = "";
+        return false;
+    }
 
     public static bool TryGetWorkspace(string url, out string workspace)
     {
@@ -61,10 +84,10 @@ public sealed class OpenDesignConsoleMethod(IOpenDesignConsoleReader? reader, bo
     {
         try
         {
-            if (!TryGetWorkspace(page.BaseUrl, out var workspace) || !page.EnabledCompatibilityMethods.Contains(_descriptor.MethodId))
-                throw new QueryTransportException(CandidateStatus.Unsupported, "OpenDesign 需要启用兼容查询，并填写含 workspaceId 的套餐与余额链接");
-            if (page.CredentialRef.ResolveClass() != CredentialClass.ConsoleSession || reader is null)
-                throw new QueryTransportException(CandidateStatus.AuthRequired, "请选择 OpenDesign 控制台登录并完成登录");
+            if (!TryGetWorkspace(page, out var workspace) || !page.EnabledCompatibilityMethods.Contains(_descriptor.MethodId))
+                throw new QueryTransportException(CandidateStatus.Unsupported, "请启用兼容查询，并填写 OpenDesign 工作空间");
+            if (reader is null)
+                throw new QueryTransportException(CandidateStatus.AuthRequired, "请登录 OpenDesign 控制台读取余额与额度");
             var response = await reader.ReadAsync(page, windows, ct);
             return Parse(response, page.Id, workspace, windows, DateTimeOffset.UtcNow);
         }
