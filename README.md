@@ -2,9 +2,9 @@
 
 Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配置面板，查看多个服务账户的额度窗口、Token 用量、费用与余额。
 
-已发布版本：**1.3.4** · Windows x64。当前源码另包含以下未发布更新。
+当前版本：**1.3.5** · Windows x64。
 
-## 未发布更新：按模型查看月度参考额度
+## 1.3.5 更新内容
 
 - OpenDesign 和 Command Code 页面提供“额度估算模型”与“参考套餐”，可同步官网月度参考额度。
 - 原模型列表编辑框已移除，Base URL、API Key 和协议继续保留。
@@ -16,13 +16,13 @@ Windows 桌面用量与额度监控工具。通过桌面小组件、托盘和配
 
 ## 下载与安装
 
-从 [GitHub 1.3.4 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.4) 或 [Gitea 1.3.4 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.4) 下载。Gitea 地址需要局域网访问。
+从 [GitHub 1.3.5 发布页](https://github.com/shxtmaker/Token-Consumption-Monitoring/releases/tag/v1.3.5) 或 [Gitea 1.3.5 发布页](http://192.168.3.100:3300/lqy/Token-Consumption-Monitoring/releases/tag/v1.3.5) 下载。Gitea 地址需要局域网访问。
 
 | 发布文件 | 适用情况 |
 | --- | --- |
-| `TokenConsumptionMonitoring-Setup-1.3.4.exe` | 首次安装，或覆盖升级已有安装版。 |
-| `TokenConsumptionMonitoring-Portable-1.3.4.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
-| `TokenConsumptionMonitoring-Upgrade-1.3.4.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
+| `TokenConsumptionMonitoring-Setup-1.3.5.exe` | 首次安装，或覆盖升级已有安装版。 |
+| `TokenConsumptionMonitoring-Portable-1.3.5.zip` | 解压到可写目录，运行 `TokenConsumptionMonitoring.exe`。 |
+| `TokenConsumptionMonitoring-Upgrade-1.3.5.exe` | 升级已安装的同一产品，保留原安装目录和安装范围；没有安装记录时请使用安装包。 |
 
 三个包均包含 .NET 8 运行组件，无需另行安装 .NET。DeepSeek、Fireworks 和 OpenDesign 控制台登录还需要 Microsoft Edge WebView2 Runtime；发布包不包含 WebView2 或 Codex CLI。
 
