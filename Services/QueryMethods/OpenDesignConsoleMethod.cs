@@ -21,7 +21,7 @@ public sealed class OpenDesignConsoleMethod(IOpenDesignConsoleReader? reader, bo
     private readonly QueryMethodDescriptor _descriptor = new(windows ? WindowsMethodId : BalanceMethodId,
         SourceKind.ConsoleOrPrivateUI, CredentialClass.ConsoleSession,
         QueryMethodDescriptor.CapabilitiesOf(windows ? CapabilityKind.RollingWindow : CapabilityKind.BalanceOrQuota),
-        SourceStability.PrivateCompat, MethodEnablement.PrivateCompatOnly, 30, "1.1.0");
+        SourceStability.PrivateCompat, MethodEnablement.PrivateCompatOnly, 30, "1.2.0");
 
     public static bool MatchesApiEndpoint(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && uri.Scheme == "https" && uri.IsDefaultPort && uri.UserInfo.Length == 0
@@ -167,7 +167,10 @@ public sealed class OpenDesignConsoleMethod(IOpenDesignConsoleReader? reader, bo
                 var percent = (int)Math.Round((1 - Math.Clamp(remaining, 0, limit) / limit) * 100, MidpointRounding.AwayFromZero);
                 values.Add(new RollingWindowValue(CapabilityKind.RollingWindow, source, scope, coverage, now, 0.9, true, false,
                     id, name, null, null, null, null, percent, resets, "percent",
-                    resets is { } end && end > now && end < now.AddMinutes(5) ? end : now.AddMinutes(5)));
+                    resets is { } end && end > now && end < now.AddMinutes(5) ? end : now.AddMinutes(5))
+                { SharedQuota = new(body.TryGetProperty("tier", out var tier) ? tier.GetString() : null,
+                    duration.ToString(CultureInfo.InvariantCulture), remaining, limit,
+                    OptionalCreditScale(observation)) });
             }
             if (values.Count == 0) throw new QueryTransportException(CandidateStatus.NoReliableUsage, "OpenDesign 暂无额度窗口");
         }
@@ -180,6 +183,12 @@ public sealed class OpenDesignConsoleMethod(IOpenDesignConsoleReader? reader, bo
         if (value.ValueKind == JsonValueKind.String && decimal.TryParse(value.GetString(),
             NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out number)) return number;
         throw Schema();
+    }
+    private static decimal? OptionalCreditScale(JsonElement observation)
+    {
+        if (!observation.TryGetProperty("creditsPerUsd", out var scale) || scale.ValueKind == JsonValueKind.Null) return null;
+        try { var value = Number(scale); return value > 0 ? value : null; }
+        catch (QueryTransportException) { return null; }
     }
     private static QueryTransportException Schema() => new(CandidateStatus.SchemaMismatch, "OpenDesign 金额或额度窗口字段无效");
 }

@@ -61,6 +61,7 @@ public sealed class MonitorState : INotifyPropertyChanged
 
     /// <summary>能力快照投影（MainPanel 与浮窗共同消费）。</summary>
     public CapabilitySnapshotViewModel Snapshot { get; } = new();
+    public QuotaReferenceViewModel QuotaReference { get; } = new();
 
     /// <summary>扫描诊断工作台（MainPanel 中栏/左栏/右栏）。</summary>
     public ScanDiagnosticsViewModel Diagnostics { get; } = new();
@@ -91,6 +92,7 @@ public sealed class MonitorState : INotifyPropertyChanged
     public void ApplySnapshot(CapabilitySnapshot snapshot, bool showDailyUsage)
     {
         Snapshot.Update(snapshot, showDailyUsage);
+        QuotaReference.ApplySnapshot(snapshot);
         SetLastSuccess(snapshot.Metadata.FetchedAt);
         SetConnection(
             snapshot.Status is SnapshotStatus.Success or SnapshotStatus.ProbeOnly
@@ -134,11 +136,13 @@ public sealed class MonitorState : INotifyPropertyChanged
     public void UpdateCountdowns()
     {
         foreach (var w in Snapshot.Windows) w.UpdateCountdown();
+        QuotaReference.Recompute();
     }
 
     public void ClearRuntime()
     {
         Snapshot.Reset();
+        QuotaReference.ClearActual();
         Diagnostics.Clear();
         SetConnection(ConnectionStatus.Unknown, "未连接", "");
         SetLastSuccess(null);

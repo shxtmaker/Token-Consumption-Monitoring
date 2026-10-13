@@ -108,12 +108,23 @@ public sealed class PageCatalog
         CredentialRef = page.CredentialRef, SortOrder = page.SortOrder, Revision = page.Revision,
         SessionGeneration = page.SessionGeneration,
         ConfiguredModelHints = new(page.ConfiguredModelHints),
-        EnabledCompatibilityMethods = new(page.EnabledCompatibilityMethods),
+        EnabledCompatibilityMethods = CopyCompatibilityMethods(page),
         OpenDesignWorkspaceId = page.OpenDesignWorkspaceId,
+        QuotaReferenceModelId = page.QuotaReferenceModelId,
+        QuotaReferencePlanId = page.QuotaReferencePlanId,
         Deprecated = page.Deprecated is { } old ? new DeprecatedPageSettings
         {
             AmountWarnCny = old.AmountWarnCny, AmountCriticalCny = old.AmountCriticalCny,
             TokenWarn = old.TokenWarn, TokenCritical = old.TokenCritical,
         } : null,
     };
+
+    private static List<string> CopyCompatibilityMethods(PageConfigRecord page)
+    {
+        var methods = new List<string>(page.EnabledCompatibilityMethods);
+        if (methods.RemoveAll(id => id == QueryMethods.OpenDesignConsoleMethod.BalanceMethodId) > 0
+            && !methods.Contains(QueryMethods.OpenDesignConsoleMethod.WindowsMethodId))
+            methods.Add(QueryMethods.OpenDesignConsoleMethod.WindowsMethodId);
+        return methods;
+    }
 }

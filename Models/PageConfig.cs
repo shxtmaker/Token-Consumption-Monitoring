@@ -51,6 +51,12 @@ public sealed class PageConfigRecord
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? OpenDesignWorkspaceId { get; set; }
 
+    /// <summary>官网参考额度的模型与套餐选择，仅影响参考展示，不改变推理配置或真实用量来源。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? QuotaReferenceModelId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? QuotaReferencePlanId { get; set; }
+
     /// <summary>页面显示顺序。</summary>
     public int SortOrder { get; set; }
 

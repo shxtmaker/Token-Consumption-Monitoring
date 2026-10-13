@@ -28,6 +28,10 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
     public const string ApiBase = "https://api.commandcode.ai";
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly ICommandCodeMonthlyMeterSource _monthlyMeter;
+
+    public CommandCodeUsageClient(ICommandCodeMonthlyMeterSource? monthlyMeter = null)
+        => _monthlyMeter = monthlyMeter ?? new CommandCodeMonthlyMeterSource();
 
     public sealed record WindowLimit(double? Used, double? Limit, double? Remaining, DateTimeOffset? ResetAt)
     {
@@ -50,14 +54,19 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
 
     public sealed record WindowLimits(bool Limited, WindowLimit? FiveHour, WindowLimit? Weekly);
 
-    public sealed record Credits(WindowLimits? Limits, double? MonthlyRemaining)
+    public sealed record Credits(WindowLimits? Limits, double? MonthlyRemaining, double? MonthlyGranted = null)
     {
         public long? MonthlyRemainingMicroCents => MonthlyRemaining is { } remaining ? Money.ToMicroCents(remaining) : null;
     }
 
-    public sealed record SubscriptionData(string? Status, DateTimeOffset? CurrentPeriodStart, DateTimeOffset? CurrentPeriodEnd);
+    public sealed record SubscriptionData(string? Status, DateTimeOffset? CurrentPeriodStart, DateTimeOffset? CurrentPeriodEnd,
+        string? PlanId = null, double? Quantity = null);
 
-    public sealed record AccountUsage(string? OrgId, Credits? Credits, SubscriptionData? Subscription = null);
+    /// <summary>官网月度限额进度条的读取结果或同口径归一化结果；不使用模型定价倍率。</summary>
+    public sealed record MonthlyMeter(int UsedPercent, DateTimeOffset? ResetsAt, bool IsDirectlyReported);
+
+    public sealed record AccountUsage(string? OrgId, Credits? Credits, SubscriptionData? Subscription = null,
+        MonthlyMeter? Monthly = null);
 
     /// <summary>本地 CLI 登录凭据，仅作为显式页面的本地凭据发现来源。</summary>
     public static string? ReadLocalApiKey()
@@ -84,7 +93,8 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
         var orgId = await FetchOrgIdAsync(apiKey, ct);
         var credits = await FetchCreditsAsync(apiKey, orgId, ct);
         var subscription = await FetchSubscriptionsAsync(apiKey, orgId, ct);
-        return credits is null && subscription is null ? null : new AccountUsage(orgId, credits, subscription);
+        var monthly = await _monthlyMeter.ReadAsync(credits, subscription, ct);
+        return credits is null && subscription is null ? null : new AccountUsage(orgId, credits, subscription, monthly);
     }
 
     public async Task<string?> FetchOrgIdAsync(string apiKey, CancellationToken ct)
@@ -111,7 +121,7 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
         if (!root.TryGetProperty("credits", out var credits) || credits.ValueKind != JsonValueKind.Object)
             return null;
         // monthlyCredits 是服务端直接返回的月度剩余（随用量递减），非月度总额；上限/已用无接口提供。
-        return new Credits(ParseWindowLimits(root), Dbl(credits, "monthlyCredits"));
+        return new Credits(ParseWindowLimits(root), Dbl(credits, "monthlyCredits"), Dbl(credits, "monthlyCreditsGranted"));
     }
 
     private static SubscriptionData? ParseSubscriptionBody(string body)
@@ -122,7 +132,7 @@ public sealed class CommandCodeUsageClient : ICommandCodeUsageClient
         return new SubscriptionData(
             Str(data, "status"),
             Date(data, "currentPeriodStart"),
-            Date(data, "currentPeriodEnd"));
+            Date(data, "currentPeriodEnd"), Str(data, "planId"), Dbl(data, "quantity"));
     }
 
     private static WindowLimits? ParseWindowLimits(JsonElement root)

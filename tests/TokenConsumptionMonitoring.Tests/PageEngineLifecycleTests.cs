@@ -11,6 +11,46 @@ namespace TokenConsumptionMonitoring.Tests;
 
 public sealed class PageEngineLifecycleTests
 {
+    [Theory]
+    [InlineData("switch")]
+    [InlineData("save")]
+    [InlineData("delete")]
+    public Task LateQuotaReferenceCannotPublishAfterPageChange(string change) => OnDispatcher(async () =>
+    {
+        var a = new PageConfigRecord { Name = "A", BaseUrl = "https://amr-link.open-design.ai/v1",
+            QuotaReferenceModelId = "opendesign:model", QuotaReferencePlanId = "go" };
+        var b = new PageConfigRecord { Name = "B" };
+        var catalog = new PageCatalog([a, b]);
+        a = catalog.Snapshot().Single(p => p.Id == a.Id);
+        var coordinator = new ControlledCoordinator();
+        var references = new DelayedReference();
+        var state = new MonitorState();
+        using var engine = Create(catalog, coordinator, state, new Tray(), references);
+        engine.SetActivePage(a.Id, persist: false);
+        await coordinator.Started(a.Id);
+        coordinator.Pending[a.Id].SetResult(Result(a.Id, SnapshotStatus.NoData));
+        if (change == "switch")
+        {
+            engine.SetActivePage(b.Id, persist: false);
+            await coordinator.Started(b.Id);
+            coordinator.Pending[b.Id].SetResult(Result(b.Id, SnapshotStatus.NoData));
+        }
+        else if (change == "delete") Assert.True(catalog.Delete(a.Id, a.Revision, _ => new(true)).Succeeded);
+        else Assert.True(catalog.Save(a, a.Revision, _ => new(true)).Succeeded);
+        references.Pending.SetResult(new("opendesign", DateTimeOffset.UtcNow, "fixture",
+            [new("opendesign:model", "Model", "go", "Go", 120, false, "", "https://open-design.ai/pricing/")]));
+        await Drain();
+        Assert.Empty(state.QuotaReference.AmountLabel);
+        if (change == "switch") Assert.False(state.QuotaReference.IsVisible);
+        await engine.StopAsync();
+    });
+
+    private sealed class DelayedReference : TokenConsumptionMonitoring.Services.QuotaReferences.IOfficialQuotaCatalogService
+    {
+        public readonly TaskCompletionSource<ModelQuotaCatalog> Pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<ModelQuotaCatalog> GetAsync(string provider, bool force, CancellationToken ct) => Pending.Task;
+    }
+
     [Fact]
     public Task ApiPageRoutesPrivateConsoleAuthenticationToOpenDesign() => OnDispatcher(async () =>
     {
@@ -136,12 +176,12 @@ public sealed class PageEngineLifecycleTests
     });
 
     private static PageEngine Create(PageCatalog catalog, ControlledCoordinator coordinator,
-        MonitorState state, Tray tray)
+        MonitorState state, Tray tray, TokenConsumptionMonitoring.Services.QuotaReferences.IOfficialQuotaCatalogService? references = null)
     {
         var settings = new AppSettings();
         return new(catalog, state, new AlertService(settings, _ => throw new Exception("Unexpected alert")),
             tray, settings, new SettingsStore(Path.Combine(Path.GetTempPath(), "unused_tcm_engine_test")),
-            Dispatcher.CurrentDispatcher, coordinator);
+            Dispatcher.CurrentDispatcher, coordinator, references);
     }
 
     private static CapabilitySnapshot Snapshot(string id, SnapshotStatus status)

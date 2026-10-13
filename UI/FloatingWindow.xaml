@@ -102,6 +102,16 @@
                 </ItemsControl>
             </StackPanel>
 
+            <StackPanel Visibility="{Binding QuotaReference.IsVisible, Converter={StaticResource BoolVis}}" Margin="0,6,0,3">
+                <TextBlock Text="所选模型额度 · 估算" Foreground="#E0A52B" FontSize="11" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding QuotaReference.ModelLabel}" Foreground="#C7CBD3" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                <TextBlock Text="{Binding QuotaReference.AmountLabel}" Foreground="#E0A52B" FontSize="13" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                <TextBlock Text="{Binding QuotaReference.StatusLabel}" Foreground="#E0A52B" FontSize="10" TextWrapping="Wrap"
+                           Visibility="{Binding QuotaReference.StatusLabel, Converter={StaticResource StrVis}}"/>
+                <TextBlock Text="{Binding QuotaReference.RemainingLabel}" TextWrapping="Wrap" Foreground="#8A8F98" FontSize="10" Margin="0,3,0,0"/>
+                <TextBlock Text="{Binding QuotaReference.SourceLabel}" ToolTip="{Binding QuotaReference.SourceUrl}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap"/>
+            </StackPanel>
+
             <!-- 今日用量：总量 + 金额 + 模型行（线上拉取） -->
             <StackPanel Visibility="{Binding Snapshot.HasReportedUsage, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
                 <Grid>

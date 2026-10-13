@@ -45,11 +45,19 @@ public abstract record CapabilityValue(
     /// <summary>是否由最近成功结果回退而来；过期值不触发新告警。</summary>
     public bool IsStale { get; init; }
 
+    /// <summary>服务端直接报告的共享额度事实；模型估算只在独立界面投影中计算。</summary>
+    public SharedQuotaEvidence? SharedQuota { get; init; }
+
     /// <summary>按过期时间判断是否需要重新查询。</summary>
     public bool IsExpired(DateTimeOffset now) => IsStale || ExpiresAt is { } e && now > e;
 
     public TimeSpan? Age(DateTimeOffset now) => now - FetchedAt;
 }
+
+public sealed record SharedQuotaEvidence(string? AccountPlanId, string Period, decimal? Remaining,
+    decimal? Limit, decimal? CreditsPerUsd = null, string? SubscriptionStatus = null,
+    decimal? Quantity = null, DateTimeOffset? PeriodStart = null, DateTimeOffset? PeriodEnd = null,
+    bool? WindowsLimited = null, decimal? MonthlyGranted = null);
 
 /// <summary>报告用量：远程官方统计/网关统计/本地记录直接报告的 token、请求（用量事实，不由价格反推）。</summary>
 public sealed record ReportedUsageValue(
@@ -123,7 +131,7 @@ public sealed record BalanceQuotaValue(
         Limit is { } limit && Remaining is { } remaining && thresholds != null && (thresholds.WarnPercent > 0 || thresholds.CriticalPercent > 0);
 }
 
-/// <summary>滚动/周期窗口：used、limit、remaining、percent、reset 时间。percent 优先由绝对值推导。</summary>
+/// <summary>滚动/周期窗口：used、limit、remaining、percent、reset 时间。percent 优先使用明确返回值，缺失时才由绝对值推导。</summary>
 public sealed record RollingWindowValue(
     CapabilityKind Kind,
     SourceIdentity Source,
@@ -145,9 +153,12 @@ public sealed record RollingWindowValue(
     DateTimeOffset? ExpiresAt = null)
     : CapabilityValue(Kind, Source, CredentialScope, Coverage, FetchedAt, Confidence, IsPrivate, IsEstimated, ExpiresAt)
 {
+    /// <summary>明确标记直接报告或官网规则归一化的百分比；未记录来源时保持未知。</summary>
+    public bool? PercentIsDirectlyReported { get; init; }
+
     public bool HasData => Percent is not null || Used is not null;
 
-    /// <summary>百分比：绝对优先，其次界面推导，接口提供原始百分比时保留。</summary>
+    /// <summary>百分比：明确百分比优先；没有百分比时才由额度绝对值推导。</summary>
     public int EffectivePercent()
     {
         if (Percent is { } p && p >= 0) return p;

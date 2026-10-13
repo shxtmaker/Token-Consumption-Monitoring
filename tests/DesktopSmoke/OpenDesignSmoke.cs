@@ -120,7 +120,7 @@ internal static class OpenDesignSmoke
                 state.ConnectionLabel, state.Snapshot.BalanceLabel,
             };
             File.WriteAllText(Path.Combine(directory, isRestart ? "restart-result.json" : "live-result.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-            if (snapshot.Status != SnapshotStatus.Success || !snapshot.Balances.Any()) return state.ConnectionLabel + "：" + state.LastError;
+            if (snapshot.Status != SnapshotStatus.Success || !snapshot.Windows.Any()) return state.ConnectionLabel + "：" + (state.LastError ?? "尚未取得套餐窗口");
             loginStatus.Text = isRestart ? "会话恢复与额度读取成功。" : "登录与额度读取成功。";
             widget.Show();
             await app.Dispatcher.InvokeAsync(() =>

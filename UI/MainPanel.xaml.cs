@@ -4,6 +4,7 @@ using TokenConsumptionMonitoring.Models;
 using TokenConsumptionMonitoring.Models.Usage;
 using TokenConsumptionMonitoring.Services;
 using TokenConsumptionMonitoring.UI.Diagnostics;
+using TokenConsumptionMonitoring.Services.QuotaReferences;
 using MessageBox = System.Windows.MessageBox;
 
 namespace TokenConsumptionMonitoring.UI;
@@ -20,6 +21,12 @@ public partial class MainPanel : Window
     private PageConfigRecord? _editing { get => _editor.Editing; set => _editor.Editing = value; }
     private string _loadedSecret { get => _editor.LoadedSecret; set => _editor.LoadedSecret = value; }
     private bool _syncingActivePage;
+    private readonly IOfficialQuotaCatalogService? _quotaReferences;
+    private ModelQuotaCatalog? _referenceCatalog;
+    private string? _referenceProvider;
+    private int _referenceLoadVersion;
+    private bool _settingReferenceSelection;
+    private readonly CancellationTokenSource _referenceLifetime = new();
 
     public event Action? RefreshRequested;
 
@@ -43,16 +50,19 @@ public partial class MainPanel : Window
             Hide();
             return;
         }
+        _referenceLoadVersion++;
+        _referenceLifetime.Cancel();
         base.OnClosing(e);
     }
 
     public MainPanel(PageConfigurationCommands commands, PageCatalog catalog, MonitorState state,
-        string? configurationDiagnostic = null)
+        string? configurationDiagnostic = null, IOfficialQuotaCatalogService? quotaReferences = null)
     {
         InitializeComponent();
         _commands = commands;
         _catalog = catalog;
         _configurationDiagnostic = configurationDiagnostic;
+        _quotaReferences = quotaReferences;
         DataContext = state;
 
         PCredentialCombo.SelectedValue = CredentialClass.ApiKey.ToString();
@@ -140,7 +150,10 @@ public partial class MainPanel : Window
         PBaseUrlBox.Text = "";
         PKeyBox.Password = "";
         _modelDraft.Clear();
-        PModelsList.ItemsSource = null;
+        _editor.QuotaReferenceModelId = null;
+        _editor.QuotaReferencePlanId = null;
+        PQuotaModelCombo.SelectedIndex = -1;
+        PQuotaPlanCombo.SelectedIndex = -1;
         PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
         PCompatibilityBox.IsChecked = false;
         POpenDesignWorkspaceBox.Text = "";
@@ -149,6 +162,8 @@ public partial class MainPanel : Window
 
     private void FillForm(PageConfigRecord page)
     {
+        _editor.QuotaReferenceModelId = page.QuotaReferenceModelId;
+        _editor.QuotaReferencePlanId = page.QuotaReferencePlanId;
         PCredentialCombo.SelectedValue = ((CredentialReference.IsSecretKey(page.CredentialRef.ResolveClass()) || page.CredentialRef.ResolveClass() == CredentialClass.LocalRecord
             || page.CredentialRef.ResolveClass() == CredentialClass.ConsoleSession && Services.QueryMethods.OpenDesignConsoleMethod.TryGetWorkspace(page.BaseUrl, out _))
             ? page.CredentialRef.ResolveClass() : CredentialClass.ApiKey).ToString();
@@ -161,8 +176,7 @@ public partial class MainPanel : Window
         _loadedSecret = PKeyBox.Password;
         _modelDraft.Clear();
         _modelDraft.AddRange(page.ConfiguredModelHints);
-        PModelsList.ItemsSource = null;
-        PModelsList.ItemsSource = _modelDraft;
+        ApplyReferenceChoices();
         RefreshFormHints();
     }
 
@@ -184,7 +198,6 @@ public partial class MainPanel : Window
         PKeyHint.Text = _editor.KeyClass is CredentialClass.LocalRecord or CredentialClass.ConsoleSession ? "无需填写密钥"
             : _editor.KeyClass != CredentialClass.ApiKey ? "填写所选类型的管理密钥" : KeyFormat.KeyHint(_protocol);
         PKeyHint.Visibility = _protocol == KeyFormat.Protocol.DeepSeekConsole ? Visibility.Collapsed : Visibility.Visible;
-        PModelsHint.Text = _modelDraft.Count == 0 ? "点击「+ 添加模型」或「自动拉取」" : $"{_modelDraft.Count} 个模型";
     }
 
     private void PBaseUrlBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -207,6 +220,7 @@ public partial class MainPanel : Window
             PProtocolCombo.SelectedItem = suggested;
         }
         RefreshFormHints();
+        RefreshReferenceProvider();
     }
 
     private void PProtocolCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -231,7 +245,7 @@ public partial class MainPanel : Window
                 PProtocolCombo.IsEnabled = kind is not (CredentialClass.LocalRecord or CredentialClass.ConsoleSession);
                 if (kind is CredentialClass.LocalRecord or CredentialClass.ConsoleSession) PProtocolCombo.SelectedItem = KeyFormat.Protocol.ChatCompletions;
             }
-            if (PModelsHint is not null) RefreshFormHints();
+            if (PQuotaHint is not null) RefreshFormHints();
         }
     }
 
@@ -287,42 +301,81 @@ public partial class MainPanel : Window
         }
     }
 
-    private void PAddModel_Click(object sender, RoutedEventArgs e)
+    private void RefreshReferenceProvider()
     {
-        var model = PNewModelBox.Text.Trim();
-        if (string.IsNullOrEmpty(model)) return;
-        if (!_modelDraft.Contains(model))
-        {
-            _modelDraft.Add(model);
-            PModelsList.ItemsSource = null;
-            PModelsList.ItemsSource = _modelDraft;
-        }
-        PNewModelBox.Text = "";
-        RefreshFormHints();
+        if (PQuotaReferencePanel is null) return;
+        var provider = OfficialQuotaCatalogService.ProviderOf(PBaseUrlBox.Text.Trim());
+        PQuotaReferencePanel.Visibility = provider is null ? Visibility.Collapsed : Visibility.Visible;
+        if (provider == _referenceProvider) return;
+        _referenceProvider = provider;
+        _referenceCatalog = null;
+        _referenceLoadVersion++;
+        PQuotaSyncButton.IsEnabled = true;
+        ApplyReferenceChoices();
+        if (provider is not null && _quotaReferences is not null) _ = LoadReferencesAsync(false);
     }
 
-    private async void PFetchModels_Click(object sender, RoutedEventArgs e)
+    private void ApplyReferenceChoices()
     {
-        if (_editor.KeyClass != CredentialClass.ApiKey)
-        {
-            PModelsHint.Text = "管理密钥不能用于模型列表探测";
-            return;
-        }
-        PModelsHint.Text = "正在拉取模型列表…";
+        _settingReferenceSelection = true;
         try
         {
-            var models = await ModelFetcher.FetchAsync(PBaseUrlBox.Text, _protocol, PKeyBox.Password);
-            if (models.Count == 0) { PModelsHint.Text = "拉取失败或接口无模型（可手动添加）"; return; }
-            _modelDraft.Clear();
-            _modelDraft.AddRange(models);
-            PModelsList.ItemsSource = null;
-            PModelsList.ItemsSource = _modelDraft;
-            PModelsHint.Text = $"已拉取 {models.Count} 个模型";
+            var entries = _referenceCatalog?.Entries ?? Array.Empty<ModelQuotaReference>();
+            var models = entries.GroupBy(e => e.ModelId).Select(g => new QuotaReferenceChoice(g.Key, g.First().ModelName)).ToList();
+            if (_editor.QuotaReferenceModelId is { Length: > 0 } saved && !models.Any(m => m.Id == saved))
+                models.Add(new(saved, saved[(saved.IndexOf(':') + 1)..] + "（上次选择）"));
+            models.Insert(0, new("", "不显示参考估算"));
+            PQuotaModelCombo.ItemsSource = models;
+            PQuotaModelCombo.SelectedValue = _editor.QuotaReferenceModelId ?? "";
+            var plans = entries.GroupBy(e => e.PlanId).Select(g => new QuotaReferenceChoice(g.Key, g.First().PlanName)).ToList();
+            if (_editor.QuotaReferencePlanId is { Length: > 0 } plan && !plans.Any(p => p.Id == plan))
+                plans.Add(new(plan, OfficialQuotaParser.PlanName(plan) + "（上次选择）"));
+            PQuotaPlanCombo.ItemsSource = plans;
+            PQuotaPlanCombo.SelectedValue = _editor.QuotaReferencePlanId;
         }
-        catch (Exception ex)
+        finally { _settingReferenceSelection = false; }
+        UpdateReferenceHint();
+    }
+
+    private async void PQuotaSync_Click(object sender, RoutedEventArgs e) => await LoadReferencesAsync(true);
+
+    private async Task LoadReferencesAsync(bool force)
+    {
+        if (_quotaReferences is null || _referenceProvider is not { } provider) return;
+        var version = ++_referenceLoadVersion;
+        PQuotaSyncButton.IsEnabled = false;
+        PQuotaHint.Text = "正在同步官网参考额度…";
+        try
         {
-            PModelsHint.Text = $"拉取失败：{ex.Message}（可手动添加）";
+            var catalog = await _quotaReferences.GetAsync(provider, force, _referenceLifetime.Token);
+            if (version != _referenceLoadVersion || provider != _referenceProvider) return;
+            _referenceCatalog = catalog;
+            ApplyReferenceChoices();
         }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException or OperationCanceledException)
+        {
+            if (version == _referenceLoadVersion) PQuotaHint.Text = "官网参考额度暂不可用，原选择保留。请稍后同步。";
+        }
+        finally { if (version == _referenceLoadVersion) PQuotaSyncButton.IsEnabled = true; }
+    }
+
+    private void PQuotaSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_settingReferenceSelection) return;
+        _editor.QuotaReferenceModelId = PQuotaModelCombo.SelectedValue as string;
+        _editor.QuotaReferencePlanId = PQuotaPlanCombo.SelectedValue as string;
+        UpdateReferenceHint();
+    }
+
+    private void UpdateReferenceHint()
+    {
+        if (PQuotaHint is null) return;
+        var entry = _referenceCatalog?.Entries.FirstOrDefault(e => e.ModelId == _editor.QuotaReferenceModelId && e.PlanId == _editor.QuotaReferencePlanId);
+        PQuotaHint.Text = entry is null ? "选择模型及参考套餐后保存。"
+            : (entry.IsFree ? "当前标价免费，仍受平台限制" : $"官网月度参考（估算）：约 ${entry.MonthlyUsd:0.####}")
+              + $" · {_referenceCatalog!.FetchedAt.ToLocalTime():MM-dd HH:mm}"
+              + (_referenceCatalog.IsStale ? " · 上次缓存" : "")
+              + (entry.Note.Length > 0 ? " · " + entry.Note : "");
     }
 
     private void SavePage()
@@ -384,7 +437,7 @@ public partial class MainPanel : Window
                 || (isOpenDesignApi && (!Services.QueryMethods.OpenDesignConsoleMethod.TryParseWorkspaceInput(POpenDesignWorkspaceBox.Text, out var workspace)
                     || workspace != savedWorkspace))
                 || PCompatibilityBox.IsChecked != true
-                || !saved.EnabledCompatibilityMethods.Contains(Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId))
+                || !saved.EnabledCompatibilityMethods.Contains(Services.QueryMethods.OpenDesignConsoleMethod.WindowsMethodId))
             {
                 MessageBox.Show("请填写工作空间，勾选兼容额度查询并保存页面，再点击登录。", "OpenDesign", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;

@@ -49,7 +49,7 @@
         <Border x:Name="ProviderForm" Grid.Row="2" CornerRadius="8" Background="#1F2329" BorderBrush="#33FFFFFF"
                 BorderThickness="1" Margin="0,10,0,0" Padding="12" Visibility="Collapsed">
             <StackPanel>
-                <TextBlock Text="配置一个完全自定义的 API 端点和初始模型。保存后自动扫描可用的查询方法。" Foreground="#8A8F98" FontSize="11" TextWrapping="Wrap"/>
+                <TextBlock Text="配置 API 端点和凭据。保存后自动查询可用额度。" Foreground="#8A8F98" FontSize="11" TextWrapping="Wrap"/>
 
                 <TextBlock Text="名称" Foreground="#C7CBD3" FontSize="12" Margin="0,10,0,0"/>
                 <TextBox x:Name="PNameBox" Height="26" Margin="0,3,0,0" Padding="5" FontSize="12"/>
@@ -77,9 +77,9 @@
                 <ComboBox x:Name="PProtocolCombo" Height="26" Margin="0,3,0,0" FontSize="12"
                           SelectionChanged="PProtocolCombo_SelectionChanged"/>
 
-                <CheckBox x:Name="PCompatibilityBox" Content="启用兼容额度查询（含控制台余额）"
+                <CheckBox x:Name="PCompatibilityBox" Content="启用兼容额度查询"
                           Foreground="#E0A52B" FontSize="11" Margin="0,8,0,0"
-                          ToolTip="OpenCode Go、Command Code 的额度，Fireworks 控制台余额及 OpenDesign 余额与额度需要勾选此项。兼容接口可能随供应商更新而变化。"/>
+                          ToolTip="OpenCode Go、Command Code 的额度，Fireworks 控制台余额及 OpenDesign 窗口额度需要勾选此项。兼容接口可能随供应商更新而变化。"/>
 
                 <Border x:Name="POpenDesignCompatibilityPanel" Visibility="Collapsed" Margin="0,8,0,0" Padding="10"
                         BorderBrush="#33FFFFFF" BorderThickness="1" CornerRadius="5">
@@ -94,17 +94,22 @@
                     </StackPanel>
                 </Border>
 
-                <TextBlock Text="模型列表（配置提示，不用于监控展示）" Foreground="#C7CBD3" FontSize="12" Margin="0,8,0,0"/>
-                <DockPanel Margin="0,3,0,0">
-                    <Button Content="自动拉取" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
-                            Margin="6,0,0,0" Click="PFetchModels_Click"/>
-                    <Button Content="+ 添加模型" Padding="10,4" FontSize="10" DockPanel.Dock="Right"
-                            Margin="0,0,0,0" Click="PAddModel_Click"/>
-                    <TextBox x:Name="PNewModelBox" Height="24" Padding="5" FontSize="11" FontFamily="Consolas"/>
-                </DockPanel>
-                <ListBox x:Name="PModelsList" Height="72" Margin="0,4,0,0" FontSize="11"
-                         Background="#181B20" Foreground="#EEF1F5" BorderThickness="0"/>
-                <TextBlock x:Name="PModelsHint" FontSize="10" Foreground="#8A8F98" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                <Border x:Name="PQuotaReferencePanel" Visibility="Collapsed" Margin="0,8,0,0" Padding="10"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" CornerRadius="5">
+                    <StackPanel>
+                        <TextBlock Text="额度估算模型" Foreground="#C7CBD3" FontSize="12"/>
+                        <ComboBox x:Name="PQuotaModelCombo" Height="28" Margin="0,4,0,0" FontSize="12"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id" SelectionChanged="PQuotaSelectionChanged"/>
+                        <TextBlock Text="参考套餐" Foreground="#C7CBD3" FontSize="11" Margin="0,7,0,0"/>
+                        <ComboBox x:Name="PQuotaPlanCombo" Height="28" Margin="0,3,0,0" FontSize="12"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id" SelectionChanged="PQuotaSelectionChanged"/>
+                        <TextBlock Text="请选择当前套餐。官网月度额度为参考估算，不代表账户当前剩余；共享额度不能按模型累加。"
+                                   Foreground="#8A8F98" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PQuotaHint" Foreground="#8FAFDB" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                        <Button x:Name="PQuotaSyncButton" Content="同步官网参考额度" HorizontalAlignment="Left"
+                                Padding="10,4" FontSize="11" Margin="0,6,0,0" Click="PQuotaSync_Click"/>
+                    </StackPanel>
+                </Border>
 
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
@@ -257,6 +262,17 @@
                         <TextBlock Text="余额/额度" Foreground="#C7CBD3" FontSize="11" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding Snapshot.BalanceLabel}" TextWrapping="Wrap" Foreground="#7FC9A0" FontSize="12"
                                    FontWeight="SemiBold" Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel Visibility="{Binding QuotaReference.IsVisible, Converter={StaticResource BoolVis}}" Margin="0,10,0,0">
+                        <TextBlock Text="所选模型额度 · 估算" Foreground="#E0A52B" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding QuotaReference.ModelLabel}" Foreground="#C7CBD3" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding QuotaReference.AmountLabel}" Foreground="#E0A52B" FontSize="13" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding QuotaReference.StatusLabel}" Foreground="#E0A52B" FontSize="10" TextWrapping="Wrap"
+                                   Visibility="{Binding QuotaReference.StatusLabel, Converter={StaticResource StrVis}}"/>
+                        <TextBlock Text="{Binding QuotaReference.RemainingLabel}" TextWrapping="Wrap" Foreground="#8A8F98" FontSize="11" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding QuotaReference.Notice}" Foreground="#8A8F98" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding QuotaReference.SourceLabel}" ToolTip="{Binding QuotaReference.SourceUrl}" Foreground="#8FAFDB" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
 
                     <!-- 今日用量（线上拉取） -->

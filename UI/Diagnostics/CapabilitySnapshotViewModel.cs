@@ -88,7 +88,8 @@ public sealed class CapabilitySnapshotViewModel : INotifyPropertyChanged
         // 余额/额度（独立区块；多来源不合并，取首选来源）
         BalanceRows.Clear();
         foreach (var balance in snapshot.Balances)
-            if (BalanceRowViewModel.FromBalance(balance) is { } row)
+            if (balance.Source.MethodId != Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId
+                && BalanceRowViewModel.FromBalance(balance) is { } row)
                 BalanceRows.Add(row);
         BalanceLabel = string.Join("\n", BalanceRows.Select(row => row.Label));
 

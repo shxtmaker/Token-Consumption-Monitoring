@@ -24,7 +24,7 @@ public sealed class OpenDesignConsoleSession(Dispatcher dispatcher, string? prof
         var key = SessionKey(page);
         if (!_windows.ContainsKey(key) && !Directory.Exists(ProfilePath(key)))
             throw new QueryTransportException(CandidateStatus.AuthRequired, "请在编辑页面中点击登录，连接 OpenDesign 控制台");
-        return GetWindow(page).ReadAsync(windows, ct);
+        return GetWindow(page).ReadAsync(windows, ct, windows && !string.IsNullOrEmpty(page.QuotaReferenceModelId));
     }
 
     public async Task ShowLoginAsync(PageConfigRecord page, Func<Task<string?>> validate)

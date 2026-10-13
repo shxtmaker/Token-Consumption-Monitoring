@@ -12,7 +12,7 @@ public sealed class PageEditorViewModel
         "opencode.rolling-window.api-key", "opencode.allowance.oauth",
         "commandcode.allowance-window.compat", "deepseek.console-usage.compat",
         "fireworks.balance.console",
-        "opendesign.balance.console", "opendesign.windows.console",
+        "opendesign.windows.console",
     };
     public PageConfigRecord? Editing { get; set; }
     public string Name { get; set; } = "";
@@ -21,6 +21,8 @@ public sealed class PageEditorViewModel
     public CredentialClass KeyClass { get; set; } = CredentialClass.ApiKey;
     public bool EnableCompatibility { get; set; }
     public string OpenDesignWorkspaceInput { get; set; } = "";
+    public string? QuotaReferenceModelId { get; set; }
+    public string? QuotaReferencePlanId { get; set; }
     public List<string> Models { get; } = new();
     public string LoadedSecret { get; set; } = "";
     public string? Error { get; private set; }
@@ -35,15 +37,26 @@ public sealed class PageEditorViewModel
         if (string.IsNullOrWhiteSpace(Name)) return Invalid("请输入名称（如：DeepSeek 官方）");
         if (!Uri.TryCreate(BaseUrl.Trim(), UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https")) return Invalid("请输入有效的 HTTP 或 HTTPS Base URL");
+        if (!string.IsNullOrWhiteSpace(QuotaReferenceModelId)
+            && Services.QuotaReferences.OfficialQuotaCatalogService.ProviderOf(BaseUrl.Trim()) is { } referenceProvider)
+        {
+            if (!QuotaReferenceModelId.StartsWith(referenceProvider + ":", StringComparison.Ordinal) || QuotaReferenceModelId.Length > 200)
+                return Invalid("请选择当前供应商的额度估算模型");
+            if (QuotaReferencePlanId is not ("go" or "goat" or "plus" or "pro" or "max" or "ultra"))
+                return Invalid("请选择参考套餐");
+        }
         var page = Editing is null ? new PageConfigRecord() : PageCatalog.Copy(Editing);
         page.Name = Name.Trim();
         page.BaseUrl = BaseUrl.Trim();
         page.Protocol = Protocol.ToString();
         page.ConfiguredModelHints = new(Models);
+        page.QuotaReferenceModelId = string.IsNullOrWhiteSpace(QuotaReferenceModelId) ? null : QuotaReferenceModelId;
+        page.QuotaReferencePlanId = string.IsNullOrWhiteSpace(QuotaReferencePlanId) ? null : QuotaReferencePlanId;
         page.EnabledCompatibilityMethods = EnableCompatibility
             ? Editing is { EnabledCompatibilityMethods.Count: > 0 }
                 ? new(Editing.EnabledCompatibilityMethods) : CompatibilityMethods.ToList()
             : new();
+        page.EnabledCompatibilityMethods.RemoveAll(id => id == Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId);
         string? newSecret = null;
         if (Services.QueryMethods.OpenDesignConsoleMethod.MatchesApiEndpoint(page.BaseUrl))
         {
@@ -56,7 +69,7 @@ public sealed class PageEditorViewModel
             }
             else page.OpenDesignWorkspaceId = null;
             if (EnableCompatibility)
-                foreach (var method in new[] { Services.QueryMethods.OpenDesignConsoleMethod.BalanceMethodId, Services.QueryMethods.OpenDesignConsoleMethod.WindowsMethodId })
+                foreach (var method in new[] { Services.QueryMethods.OpenDesignConsoleMethod.WindowsMethodId })
                     if (!page.EnabledCompatibilityMethods.Contains(method)) page.EnabledCompatibilityMethods.Add(method);
         }
         else page.OpenDesignWorkspaceId = null;
@@ -67,7 +80,7 @@ public sealed class PageEditorViewModel
             if (!EnableCompatibility) return Invalid("请勾选启用兼容额度查询");
             page.CredentialRef = CredentialReference.GlobalConsoleSession($"opendesign:page:{page.Id}");
             page.Protocol = KeyFormat.Protocol.ChatCompletions.ToString();
-            foreach (var method in new[] { "opendesign.balance.console", "opendesign.windows.console" })
+            foreach (var method in new[] { "opendesign.windows.console" })
                 if (!page.EnabledCompatibilityMethods.Contains(method)) page.EnabledCompatibilityMethods.Add(method);
         }
         else if (KeyClass == CredentialClass.LocalRecord)

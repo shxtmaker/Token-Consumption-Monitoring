@@ -43,7 +43,6 @@ public sealed class QueryMethodRegistry
             new MoonshotBalanceMethod(),
             new FireworksMonthlyCostMethod(),
             new FireworksConsoleBalanceMethod(fireworks),
-            new OpenDesignConsoleMethod(openDesign),
             new OpenDesignConsoleMethod(openDesign, windows: true),
             new CodexAccountMethod(),
             new CodexAccountMethod(usage: true),

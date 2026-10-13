@@ -31,6 +31,7 @@ public sealed class PageEngine : IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly Dispatcher _dispatcher;
     private readonly IPageRuntimeCoordinator _coordinator;
+    private readonly QuotaReferences.IOfficialQuotaCatalogService? _quotaReferences;
     private readonly PageRefreshQueue _refreshes;
     private readonly object _maintenanceGate = new();
     private readonly List<Task> _maintenance = new();
@@ -60,7 +61,8 @@ public sealed class PageEngine : IDisposable
         AppSettings settings,
         SettingsStore settingsStore,
         Dispatcher dispatcher,
-        IPageRuntimeCoordinator coordinator)
+        IPageRuntimeCoordinator coordinator,
+        QuotaReferences.IOfficialQuotaCatalogService? quotaReferences = null)
     {
         _catalog = catalog;
         _state = state;
@@ -70,6 +72,7 @@ public sealed class PageEngine : IDisposable
         _settingsStore = settingsStore;
         _dispatcher = dispatcher;
         _coordinator = coordinator;
+        _quotaReferences = quotaReferences;
         _refreshes = new PageRefreshQueue(catalog);
         catalog.Changed += OnCatalogChanged;
     }
@@ -98,6 +101,7 @@ public sealed class PageEngine : IDisposable
             _settingsStore.SaveActivePage(pageId);
 
         var page = _pages.FirstOrDefault(p => p.Id == pageId);
+        _state.QuotaReference.Configure(page);
         if (page is null)
         {
             _state.SetPageState(false, "");
@@ -242,12 +246,46 @@ public sealed class PageEngine : IDisposable
 
     private async Task RefreshPageAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
     {
-        var result = await _coordinator.RefreshAsync(page, reason, ct);
-        // 所有页面都可以刷新，但只有活动页能写入 MonitorState、托盘和浮窗。
+        var reference = RefreshReferenceAsync(page, reason, ct);
+        try
+        {
+            var result = await _coordinator.RefreshAsync(page, reason, ct);
+            // 所有页面都可以刷新，但只有活动页能写入 MonitorState、托盘和浮窗。
+            await _dispatcher.InvokeAsync(() =>
+            {
+                if (!ct.IsCancellationRequested && page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision)) RenderRuntime(page, result);
+            });
+        }
+        finally { await reference; }
+    }
+
+    private async Task RefreshReferenceAsync(PageConfigRecord page, RefreshReason reason, CancellationToken ct)
+    {
+        if (_quotaReferences is null || page.Id != _activeId) return;
+        var provider = QuotaReferences.OfficialQuotaCatalogService.ProviderOf(page.BaseUrl);
         await _dispatcher.InvokeAsync(() =>
         {
-            if (!ct.IsCancellationRequested && page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision)) RenderRuntime(page, result);
+            if (page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision)) _state.QuotaReference.Configure(page);
         });
+        if (provider is null || string.IsNullOrEmpty(page.QuotaReferenceModelId)) return;
+        try
+        {
+            var catalog = await _quotaReferences.GetAsync(provider, reason == RefreshReason.Manual, ct);
+            await _dispatcher.InvokeAsync(() =>
+            {
+                if (!ct.IsCancellationRequested && page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision))
+                    _state.QuotaReference.Update(page, catalog);
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException)
+        {
+            await _dispatcher.InvokeAsync(() =>
+            {
+                if (!ct.IsCancellationRequested && page.Id == _activeId && _catalog.IsCurrent(page.Id, page.Revision))
+                    _state.QuotaReference.Failed(page);
+            });
+        }
     }
 
     private void RenderRuntime(PageConfigRecord page, PageRuntimeResult result)

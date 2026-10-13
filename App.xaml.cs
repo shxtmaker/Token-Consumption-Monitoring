@@ -23,6 +23,7 @@ public partial class App : System.Windows.Application
     private DeepSeekSessionService? _deepSeekSession;
     private FireworksConsoleSession? _fireworksSession;
     private OpenDesignConsoleSession? _openDesignSession;
+    private Services.QuotaReferences.OfficialQuotaCatalogService? _quotaReferences;
     private TrayIconService? _tray;
     private FloatingWindow? _floating;
     private MainPanel? _panel;
@@ -116,14 +117,15 @@ public partial class App : System.Windows.Application
         var coordinator = new PageRuntimeCoordinator(registry, fingerprints, new MethodStateStore(), new MethodResultCache(), catalog: catalog);
 
         // 页面引擎：只管理生命周期，委托 coordinator
-        _pageEngine = new PageEngine(catalog, state, alerts, _tray, _settings, settingsStore, Dispatcher, coordinator);
+        _quotaReferences = new Services.QuotaReferences.OfficialQuotaCatalogService();
+        _pageEngine = new PageEngine(catalog, state, alerts, _tray, _settings, settingsStore, Dispatcher, coordinator, _quotaReferences);
         _openCodeAuth.TryLoadSession();   // 恢复 opencode OAuth 会话（OAuth 方法依赖登录状态）
 
         _floating = new FloatingWindow { DataContext = state };
         _floating.SetLocked(_settings.WidgetLocked);   // 恢复锁定状态（置顶/禁拖动）
         _floating.SetBackgroundOpacity(_settings.WidgetOpacityPercent);   // 恢复背景透明度
         _panel = new MainPanel(new PageConfigurationCommands(catalog, pageStore, new WindowsPageCredentialStore()),
-            catalog, state, loadResult.IsRecoveryRequired ? loadResult.Diagnostic : null);
+            catalog, state, loadResult.IsRecoveryRequired ? loadResult.Diagnostic : null, _quotaReferences);
 
         WireEvents();
 
@@ -244,8 +246,8 @@ public partial class App : System.Windows.Application
             {
                 var current = _pageEngine!.Pages.FirstOrDefault(p => p.Id == pageId);
                 if (current is null || current.Revision != page.Revision) return "页面配置已变化，请关闭此窗口并重新登录。";
-                var result = await new OpenDesignConsoleMethod(_openDesignSession).QueryAsync(current, null!, _loginCts.Token);
-                if (result.Status != SnapshotStatus.Success) return result.Failure?.Reason ?? "尚未取得余额";
+                var result = await new OpenDesignConsoleMethod(_openDesignSession, windows: true).QueryAsync(current, null!, _loginCts.Token);
+                if (result.Status is not (SnapshotStatus.Success or SnapshotStatus.NoData)) return result.Failure?.Reason ?? "尚未取得额度";
                 await _pageEngine.RefreshAfterSessionAsync(CredentialClass.ConsoleSession);
                 _pageEngine.SetActivePage(pageId);
                 return null;

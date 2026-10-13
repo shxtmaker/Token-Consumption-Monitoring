@@ -52,7 +52,7 @@ public partial class OpenDesignConsoleWindow : Window
         catch (Exception) { Hint.Text = "无法初始化登录页面，请确认已安装 Microsoft Edge WebView2 Runtime 后重试。"; }
     }
 
-    public async Task<JsonElement> ReadAsync(bool windows, CancellationToken ct)
+    public async Task<JsonElement> ReadAsync(bool windows, CancellationToken ct, bool includeCreditScale = false)
     {
         if (IsVisible && !_completing)
             throw new QueryTransportException(CandidateStatus.AuthRequired, "请先在 OpenDesign 登录窗口点击“完成并读取额度”");
@@ -92,7 +92,7 @@ public partial class OpenDesignConsoleWindow : Window
             webView.WebMessageReceived += Received;
             try
             {
-                await webView.ExecuteScriptAsync(BuildReadScript(nonce, _workspace, windows)).WaitAsync(TimeSpan.FromSeconds(5), ct);
+                await webView.ExecuteScriptAsync(BuildReadScript(nonce, _workspace, windows, includeCreditScale)).WaitAsync(TimeSpan.FromSeconds(5), ct);
                 return await completion.Task.WaitAsync(TimeSpan.FromSeconds(24), ct);
             }
             finally { webView.WebMessageReceived -= Received; }
@@ -100,7 +100,7 @@ public partial class OpenDesignConsoleWindow : Window
         finally { _readLock.Release(); }
     }
 
-    internal static string BuildReadScript(string nonce, string workspace, bool windows) => $$"""
+    internal static string BuildReadScript(string nonce, string workspace, bool windows, bool includeCreditScale = false) => $$"""
         (() => {
           const nonce = {{JsonSerializer.Serialize(nonce)}};
           const workspace = {{JsonSerializer.Serialize(workspace)}};
@@ -122,7 +122,14 @@ public partial class OpenDesignConsoleWindow : Window
               const context = await read('/api/v1/workspaces/current');
               if (context.workspaceId !== workspace) return send({status:'forbidden'});
               const body = await read(path);
-              send({status:'ready', context:{workspaceId:context.workspaceId, workspaceMemberId:context.workspaceMemberId}, body});
+              let creditsPerUsd = null;
+              if ({{(windows && includeCreditScale ? "true" : "false")}}) {
+                try {
+                  const summary = await read('/api/v1/billing/summary');
+                  creditsPerUsd = summary.creditsPerUsd ?? null;
+                } catch { /* Optional unit evidence cannot erase an otherwise valid window. */ }
+              }
+              send({status:'ready', context:{workspaceId:context.workspaceId, workspaceMemberId:context.workspaceMemberId}, body, creditsPerUsd});
             } catch (error) { send({status:['auth','forbidden','rate','schema'].includes(error?.status) ? error.status : 'network'}); }
             finally { clearTimeout(timer); }
           })();

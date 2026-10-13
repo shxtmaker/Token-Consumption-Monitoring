@@ -31,6 +31,17 @@ public sealed class CommandCodeCreditsTests
             DateTimeOffset.Parse("2026-09-19T10:32:37.000Z")));
 
     [Fact]
+    public void MonthlyMeterIsDisplayedAsPercentInsteadOfDollarRemaining()
+    {
+        var usage = GoatUsage with { Monthly = new(41, DateTimeOffset.Parse("2026-10-19T00:00:00Z"), true) };
+        var result = CommandCodeAllowanceWindowMethod.BuildResult(usage, Scope, Source);
+        var monthly = Assert.Single(result.Capabilities.OfType<RollingWindowValue>(), w => w.WindowKey == "commandcode.monthly");
+        Assert.Equal(41, monthly.Percent);
+        Assert.Equal(usage.Monthly.ResetsAt, monthly.ResetsAt);
+        Assert.Empty(result.Capabilities.OfType<BalanceQuotaValue>());
+    }
+
+    [Fact]
     public void BuildResult_EmitsMonthlyBalanceWithoutLimitAndWindows()
     {
         var result = CommandCodeAllowanceWindowMethod.BuildResult(GoatUsage, Scope, Source);

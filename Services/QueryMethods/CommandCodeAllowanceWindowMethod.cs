@@ -18,7 +18,7 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         SourceStability.PrivateCompat,
         MethodEnablement.PrivateCompatOnly,
         DefaultPriority: 45,
-        MethodSupport.ImplementationVersion);
+        "1.3.0");
 
     private const string Provider = "commandcode";
     private readonly ICommandCodeUsageClient _client;
@@ -92,14 +92,38 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
         return BuildResult(usage, scope, source);
     }
 
-    /// <summary>用量数据 → 能力列表：5h/周窗口 + 月度剩余 credits（余额能力）。</summary>
+    /// <summary>用量数据 → 能力列表：5h/周窗口与月度限额；月度百分比不可用时才回退到 credits。</summary>
     internal static MethodQueryResult BuildResult(CommandCodeUsageClient.AccountUsage usage,
         CredentialScope scope, SourceIdentity source)
     {
         var capabilities = new List<CapabilityValue>();
         AddWindow(capabilities, usage.Credits?.Limits?.FiveHour, "commandcode.fiveHour", "5h 窗口", scope, source);
         AddWindow(capabilities, usage.Credits?.Limits?.Weekly, "commandcode.weekly", "周窗口", scope, source);
-        AddMonthlyBalance(capabilities, usage.Credits?.MonthlyRemaining, scope, source);
+        if (usage.Monthly is { UsedPercent: >= 0 and <= 100 } monthly)
+            capabilities.Add(new RollingWindowValue(CapabilityKind.RollingWindow, source, scope,
+                new(usage.Subscription?.CurrentPeriodStart, usage.Subscription?.CurrentPeriodEnd, Granularity.PerWindow, "月度套餐限额"),
+                DateTimeOffset.UtcNow, 1.0, true, false, "commandcode.monthly", "月度限额", null,
+                null, null, null, monthly.UsedPercent, monthly.ResetsAt, "percent", DateTimeOffset.UtcNow.AddMinutes(5))
+                { PercentIsDirectlyReported = monthly.IsDirectlyReported });
+        else
+            AddMonthlyBalance(capabilities, usage.Credits?.MonthlyRemaining, scope, source);
+
+        static decimal? Exact(double? value) => value is { } n && double.IsFinite(n)
+            && n <= (double)decimal.MaxValue && n >= (double)decimal.MinValue ? (decimal)n : null;
+        var subscription = usage.Subscription;
+        for (var i = 0; i < capabilities.Count; i++)
+        {
+            var period = capabilities[i] is RollingWindowValue window && window.WindowKey != "commandcode.monthly" ? window.WindowKey : "monthly";
+            var raw = period == "commandcode.fiveHour" ? usage.Credits?.Limits?.FiveHour
+                : period == "commandcode.weekly" ? usage.Credits?.Limits?.Weekly : null;
+            capabilities[i] = capabilities[i] with { SharedQuota = new(subscription?.PlanId, period,
+                period == "monthly" ? Exact(usage.Credits?.MonthlyRemaining)
+                    : Exact(raw?.Remaining) ?? (Exact(raw?.Limit) is { } cap && Exact(raw?.Used) is { } used && used >= 0
+                        ? Math.Max(0, cap - used) : null), Exact(raw?.Limit),
+                SubscriptionStatus: subscription?.Status, Quantity: Exact(subscription?.Quantity),
+                PeriodStart: subscription?.CurrentPeriodStart, PeriodEnd: subscription?.CurrentPeriodEnd,
+                WindowsLimited: usage.Credits?.Limits?.Limited, MonthlyGranted: Exact(usage.Credits?.MonthlyGranted)) };
+        }
 
         return new MethodQueryResult(capabilities,
             capabilities.Count > 0 ? SnapshotStatus.Success : SnapshotStatus.NoData,
@@ -116,10 +140,10 @@ public sealed class CommandCodeAllowanceWindowMethod : IQueryMethod
             Confidence: 1.0, IsPrivate: true, IsEstimated: false,
             WindowKey: key, WindowName: name, Status: "正常",
             Used: w.UsedMicroCents, Limit: w.LimitMicroCents, Remaining: w.RemainingMicroCents,
-            Percent: w.Percent, ResetsAt: w.ResetAt, Unit: "microCents"));
+            Percent: w.Percent, ResetsAt: w.ResetAt == DateTimeOffset.UnixEpoch && w.Used == 0 ? null : w.ResetAt, Unit: "microCents"));
     }
 
-    /// <summary>月度剩余 credits：服务端只有剩余值（无上限/已用），按余额能力展示，不告警、不推导月度百分比。</summary>
+    /// <summary>月度百分比不可用时回退到服务端剩余 credits；缺少可靠上限时不在此函数中推导百分比。</summary>
     private static void AddMonthlyBalance(List<CapabilityValue> list, double? monthlyRemaining,
         CredentialScope scope, SourceIdentity source)
     {

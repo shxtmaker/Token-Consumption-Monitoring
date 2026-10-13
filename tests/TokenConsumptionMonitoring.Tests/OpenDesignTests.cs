@@ -317,7 +317,7 @@ public sealed class OpenDesignTests
             var saved = new PageConfigStore(directory).Load().Document.Pages.Single();
             Assert.Equal(CredentialClass.ConsoleSession, saved.CredentialRef.ResolveClass());
             Assert.Equal(KeyFormat.Protocol.ChatCompletions, saved.ParseProtocol());
-            Assert.Contains(OpenDesignConsoleMethod.BalanceMethodId, saved.EnabledCompatibilityMethods);
+            Assert.DoesNotContain(OpenDesignConsoleMethod.BalanceMethodId, saved.EnabledCompatibilityMethods);
             Assert.Contains(OpenDesignConsoleMethod.WindowsMethodId, saved.EnabledCompatibilityMethods);
             Assert.Equal("", commands.ReadApiKeyForEditing(saved));
             editor.Editing = catalog.Snapshot().Single();
@@ -351,20 +351,20 @@ public sealed class OpenDesignTests
                 "commandcode.allowance-window.compat", "deepseek.console-usage.compat", "fireworks.balance.console"]);
             var first = await coordinator.RefreshAsync(page, RefreshReason.Manual, default);
             Assert.Equal(SnapshotStatus.Success, first.Snapshot.Status);
-            Assert.Single(first.Snapshot.Balances);
+            Assert.Empty(first.Snapshot.Balances);
             Assert.Equal(2, first.Snapshot.Windows.Count());
-            Assert.Equal(2, first.Snapshot.Metadata.EffectiveSelectedMethodIds.Count);
+            Assert.Single(first.Snapshot.Metadata.EffectiveSelectedMethodIds);
             Assert.All(first.Snapshot.Capabilities, c => Assert.Equal("opendesign", c.Source.Provider));
             var projection = new MonitorState();
             projection.ApplySnapshot(first.Snapshot, true);
-            Assert.Equal("余额 1.5 USD", projection.Snapshot.BalanceLabel);
+            Assert.Empty(projection.Snapshot.BalanceLabel);
             Assert.All(projection.Snapshot.Windows, w => Assert.Equal("", w.AbsoluteLabel));
             Assert.False(projection.Snapshot.HasReportedUsage);
 
             reader.WindowFailure = "network";
             var partial = await coordinator.RefreshAsync(page, RefreshReason.Manual, default);
-            Assert.Equal(SnapshotStatus.SuccessPartial, partial.Snapshot.Status);
-            Assert.All(partial.Snapshot.Balances, b => Assert.False(b.IsStale));
+            Assert.Equal(SnapshotStatus.Stale, partial.Snapshot.Status);
+            Assert.Empty(partial.Snapshot.Balances);
             Assert.All(partial.Snapshot.Windows, w => Assert.True(w.IsStale));
 
             reader.AllFailure = "auth";
